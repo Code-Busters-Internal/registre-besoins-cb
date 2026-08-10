@@ -11,10 +11,11 @@ sans jamais poster deux fois la même chose — et l'état reste lisible à l'œ
 la base.
 
 Variables d'environnement :
-  NOTION_TOKEN          token d'une intégration interne Notion, la base doit lui être connectée
-  NOTION_DATABASE_ID    id de « Base des besoins internes »
-  DISCORD_WEBHOOK_URL   webhook entrant du channel dédié
-  DRY_RUN               à 1, affiche ce qui partirait sans rien poster ni écrire
+  NOTION_TOKEN                token d'une intégration interne Notion
+  NOTION_DATABASE_ID          id de « Base des besoins internes »
+  NOTION_CANDIDATURES_DB_ID   id de « Base de candidatures à un besoin »
+  DISCORD_WEBHOOK_URL         webhook entrant du channel dédié
+  DRY_RUN                     à 1, affiche ce qui partirait sans rien poster ni écrire
 """
 
 import json
@@ -35,10 +36,13 @@ USER_AGENT = "RegistreBesoinsCB/1.0 (+https://github.com/Code-Busters-Internal/r
 RELANCE_APRES_JOURS = 10  # âge minimum d'un besoin sans candidature pour être relancé
 RELANCE_AGE_MAX = 60  # au-delà, on n'insiste plus : c'est à la commission de trancher
 
+# Une candidature encore en brouillon n'est pas un candidat : le bouton « Candidater »
+# la crée dans cet état, elle ne compte qu'une fois validée par son auteur.
+STATUTS_IGNORES = {"Brouillon"}
+
 PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
 PROP_PUBLICATION = "Date de publication"
-PROP_CANDIDATURES = "Nb intéressés"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -52,6 +56,10 @@ def env(name):
     if not value:
         raise ConfigError(f"variable d'environnement manquante : {name}")
     return value
+
+
+def sans_tirets(identifiant):
+    return (identifiant or "").replace("-", "")
 
 
 def notion_request(method, path, token, payload=None):
@@ -73,12 +81,12 @@ def notion_request(method, path, token, payload=None):
         raise RuntimeError(f"Notion {method} {path} → {error.code} : {detail}") from error
 
 
-def besoins_publies(token, database_id):
-    """Toutes les pages en État = Publication, pagination comprise."""
+def pages_de_base(token, database_id, payload_base=None):
+    """Toutes les pages d'une base, pagination comprise."""
     pages = []
     cursor = None
     while True:
-        payload = {"filter": {"property": "État", "select": {"equals": "Publication"}}}
+        payload = dict(payload_base or {})
         if cursor:
             payload["start_cursor"] = cursor
         data = notion_request("POST", f"/databases/{database_id}/query", token, payload)
@@ -86,6 +94,32 @@ def besoins_publies(token, database_id):
         if not data.get("has_more"):
             return pages
         cursor = data["next_cursor"]
+
+
+def besoins_publies(token, database_id):
+    return pages_de_base(
+        token, database_id, {"filter": {"property": "État", "select": {"equals": "Publication"}}}
+    )
+
+
+def index_candidatures(token, database_id):
+    """{id du besoin (sans tirets): nombre de candidatures hors brouillon}.
+
+    La base des besoins n'expose aucune relation vers les candidatures : `Projet` est
+    une relation à sens unique, portée par la base des candidatures. Aucun rollup ne
+    peut donc compter les candidats depuis le besoin — un « Nb intéressés » avait été
+    tenté, il renvoyait null en permanence et a été retiré le 2026-08-10. On agrège
+    donc ici, ce qui permet en plus d'exclure les brouillons.
+    """
+    index = {}
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        if nom_select(props.get("Statut")) in STATUTS_IGNORES:
+            continue
+        for lien in props.get("Projet", {}).get("relation", []):
+            cle = sans_tirets(lien.get("id"))
+            index[cle] = index.get(cle, 0) + 1
+    return index
 
 
 def texte_titre(prop):
@@ -111,21 +145,6 @@ def date_debut(prop):
     if not valeur or not valeur.get("start"):
         return None
     return date.fromisoformat(valeur["start"][:10])
-
-
-def nb_candidatures(prop):
-    """Le rollup « Nb intéressés ». Tolère un rollup mal typé en retombant sur la relation."""
-    if not prop:
-        return 0
-    if prop.get("type") == "rollup":
-        rollup = prop["rollup"]
-        if rollup.get("type") == "number":
-            return rollup.get("number") or 0
-        if rollup.get("type") == "array":
-            return len(rollup.get("array", []))
-    if prop.get("type") == "relation":
-        return len(prop.get("relation", []))
-    return 0
 
 
 def cocher(token, page_id, propriete):
@@ -199,17 +218,23 @@ def message_relance(nom, objectif, age, url):
     return "\n".join(lignes)
 
 
-def traiter(page, token, webhook_url, aujourdhui):
-    """Poste au plus un message pour cette page. Retourne 'annonce', 'relance' ou None."""
+def traiter(page, token, webhook_url, aujourdhui, candidatures):
+    """Poste au plus un message pour cette page.
+
+    `candidatures` est le nombre de candidatures hors brouillon, ou None si on n'a pas
+    pu le calculer — dans ce cas on n'annonce que, sans jamais relancer : mieux vaut
+    une relance manquante qu'une relance sur un besoin déjà pourvu.
+
+    Retourne 'annonce', 'relance' ou None.
+    """
     props = page["properties"]
     nom = texte_titre(props.get("Nom")) or "(sans titre)"
     url = page["url"]
     objectif = texte_riche(props.get("Objectif"))
 
-    # Le compteur de relance a besoin d'un point de départ. Aucune automatisation Notion
-    # ne s'en charge de façon fiable (constaté le 2026-08-10 : la date restait vide au
-    # passage en Publication comme en Cadrage métier), donc on la pose ici, au premier
-    # passage où le besoin apparaît publié.
+    # Le compteur de relance a besoin d'un point de départ. Une automatisation Notion
+    # le pose au passage en Publication, mais elle ne couvre pas les besoins arrivés
+    # autrement (import, API, bascule en masse) : on rattrape ici.
     publie_le = date_debut(props.get(PROP_PUBLICATION))
     if publie_le is None:
         publie_le = aujourdhui
@@ -224,7 +249,7 @@ def traiter(page, token, webhook_url, aujourdhui):
 
     if coche(props.get(PROP_RELANCE)):
         return None
-    if nb_candidatures(props.get(PROP_CANDIDATURES)) > 0:
+    if candidatures is None or candidatures > 0:
         return None
 
     age = (aujourdhui - publie_le).days
@@ -241,17 +266,26 @@ def main():
     token = env("NOTION_TOKEN")
     database_id = env("NOTION_DATABASE_ID")
     webhook_url = env("DISCORD_WEBHOOK_URL")
+    candidatures_db = os.environ.get("NOTION_CANDIDATURES_DB_ID")
     aujourdhui = date.today()
 
     if DRY_RUN:
         print("DRY_RUN actif : rien ne sera posté ni écrit dans Notion.\n")
+
+    if candidatures_db:
+        index = index_candidatures(token, candidatures_db)
+        print(f"{sum(index.values())} candidature(s) hors brouillon, sur {len(index)} besoin(s)")
+    else:
+        index = None
+        print("! NOTION_CANDIDATURES_DB_ID absent : relances désactivées (annonces actives).")
 
     pages = besoins_publies(token, database_id)
     print(f"{len(pages)} besoin(s) en État = Publication")
 
     annonces = relances = 0
     for page in pages:
-        resultat = traiter(page, token, webhook_url, aujourdhui)
+        nb = None if index is None else index.get(sans_tirets(page["id"]), 0)
+        resultat = traiter(page, token, webhook_url, aujourdhui, nb)
         if resultat == "annonce":
             annonces += 1
         elif resultat == "relance":

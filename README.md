@@ -31,11 +31,28 @@ Aucun état n'est stocké ici. Deux cases à cocher dans Notion font mémoire :
 Le job peut donc tourner en double, échouer et redémarrer sans jamais poster deux fois.
 Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
 
+## Comptage des candidatures
+
+La base des besoins n'expose **aucune relation** vers les candidatures : `Projet` est une
+relation à sens unique, portée par la base des candidatures. Aucun rollup ne peut donc
+compter les candidats depuis le besoin — un `Nb intéressés` avait été tenté, il renvoyait
+`null` en permanence et a été retiré le 2026-08-10. S'y fier aurait fait relancer des
+besoins déjà pourvus.
+
+Le job lit donc la base des candidatures et agrège lui-même par besoin. C'est fiable, et
+ça permet surtout d'**exclure les brouillons** : le bouton « Candidater » crée la
+candidature en `Statut = Brouillon`, elle ne devient un vrai candidat qu'une fois validée
+par son auteur.
+
+Corollaire à garder en tête : côté vitrine, **le nombre de candidats n'est plus affiché**
+aux Busters. Le rétablir demanderait de passer `Projet` en relation bidirectionnelle, puis
+d'ajouter un rollup sur la base des besoins.
+
 ## Règles
 
 - **Annonce** : `État = Publication` et `Annoncé sur Discord` décochée.
 - **Relance** : `État = Publication`, `Annoncé sur Discord` cochée, `Relancé sur Discord`
-  décochée, `Nb intéressés = 0`, et publié depuis 10 à 60 jours.
+  décochée, **aucune candidature hors brouillon**, et publié depuis 10 à 60 jours.
   Au-delà de 60 jours on n'insiste plus : le besoin relève d'un arbitrage de la commission,
   pas d'un rappel automatique.
 - Une seule relance par besoin. Si des relances répétées s'avèrent nécessaires à l'usage,
@@ -59,7 +76,12 @@ Trois secrets de dépôt (Settings → Secrets and variables → Actions) :
 |---|---|
 | `NOTION_TOKEN` | intégration interne Notion, voir ci-dessous |
 | `NOTION_DATABASE_ID` | id de « Base des besoins internes » dans son URL |
+| `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un besoin » |
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
+
+`NOTION_CANDIDATURES_DB_ID` est le seul optionnel. S'il manque, le job continue
+d'annoncer mais **ne relance plus** : sans savoir qui a candidaté, mieux vaut une relance
+manquante qu'une relance sur un besoin déjà pourvu.
 
 L'intégration Notion se crée sur <https://www.notion.so/my-integrations> (type *interne*),
 puis **la base doit lui être explicitement connectée** : ouvrir « Base des besoins
