@@ -29,6 +29,9 @@ from datetime import date
 NOTION_VERSION = "2022-06-28"
 NOTION_API = "https://api.notion.com/v1"
 
+# Exigé par Discord (voir post_discord). Un agent générique se fait rejeter par Cloudflare.
+USER_AGENT = "RegistreBesoinsCB/1.0 (+https://github.com/Code-Busters-Internal/registre-besoins-cb)"
+
 RELANCE_APRES_JOURS = 10  # âge minimum d'un besoin sans candidature pour être relancé
 RELANCE_AGE_MAX = 60  # au-delà, on n'insiste plus : c'est à la commission de trancher
 
@@ -158,7 +161,13 @@ def post_discord(webhook_url, content):
         method="POST",
         # allowed_mentions vide : un titre de besoin contenant @ ne doit pinger personne
         data=json.dumps({"content": content, "allowed_mentions": {"parse": []}}).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            # NE PAS RETIRER. Cloudflare protège l'API Discord et rejette le User-Agent
+            # par défaut de urllib avec un « 403 error code: 1010 ». Il faut un agent
+            # explicite. Notion, lui, s'en passe très bien.
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(request) as response:
