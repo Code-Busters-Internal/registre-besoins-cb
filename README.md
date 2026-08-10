@@ -41,9 +41,15 @@ Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
 - Une seule relance par besoin. Si des relances répétées s'avèrent nécessaires à l'usage,
   il suffira de décocher `Relancé sur Discord`.
 
-`Date de publication` est remplie par une automatisation Notion au passage en Publication.
-C'est le point de départ du compteur — si elle manque, le job le signale dans ses logs et
-ne relance pas.
+`Date de publication` est posée **par le job lui-même**, au premier passage où un besoin
+apparaît en Publication sans date. C'est le point de départ du compteur de relance.
+
+Une automatisation Notion avait été envisagée pour ça, mais elle ne remplissait rien en
+pratique (constaté le 2026-08-10, la date restait vide au passage en Publication comme en
+Cadrage métier). Le job étant le seul consommateur de cette date, il est aussi le mieux
+placé pour la poser : un mécanisme de moins à maintenir. Contrepartie : la date est celle
+du passage du cron, pas de l'instant exact du changement d'état — sans conséquence pour un
+seuil à 10 jours.
 
 ## Configuration
 

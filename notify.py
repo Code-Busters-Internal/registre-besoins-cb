@@ -137,6 +137,18 @@ def cocher(token, page_id, propriete):
     )
 
 
+def ecrire_date(token, page_id, propriete, jour):
+    if DRY_RUN:
+        print(f"    [dry-run] ecrirait « {propriete} » = {jour}")
+        return
+    notion_request(
+        "PATCH",
+        f"/pages/{page_id}",
+        token,
+        {"properties": {propriete: {"date": {"start": jour.isoformat()}}}},
+    )
+
+
 def post_discord(webhook_url, content):
     if DRY_RUN:
         print(f"    [dry-run] posterait sur Discord :\n{content}\n")
@@ -185,6 +197,16 @@ def traiter(page, token, webhook_url, aujourdhui):
     url = page["url"]
     objectif = texte_riche(props.get("Objectif"))
 
+    # Le compteur de relance a besoin d'un point de départ. Aucune automatisation Notion
+    # ne s'en charge de façon fiable (constaté le 2026-08-10 : la date restait vide au
+    # passage en Publication comme en Cadrage métier), donc on la pose ici, au premier
+    # passage où le besoin apparaît publié.
+    publie_le = date_debut(props.get(PROP_PUBLICATION))
+    if publie_le is None:
+        publie_le = aujourdhui
+        ecrire_date(token, page["id"], PROP_PUBLICATION, aujourdhui)
+        print(f"  · {nom} : « {PROP_PUBLICATION} » initialisée au {aujourdhui}")
+
     if not coche(props.get(PROP_ANNONCE)):
         post_discord(webhook_url, message_annonce(nom, objectif, nom_select(props.get("Catégorie")), url))
         cocher(token, page["id"], PROP_ANNONCE)
@@ -194,13 +216,6 @@ def traiter(page, token, webhook_url, aujourdhui):
     if coche(props.get(PROP_RELANCE)):
         return None
     if nb_candidatures(props.get(PROP_CANDIDATURES)) > 0:
-        return None
-
-    publie_le = date_debut(props.get(PROP_PUBLICATION))
-    if publie_le is None:
-        # Sans date de publication, impossible de compter les jours. L'automatisation
-        # Notion la pose au passage en Publication : si elle manque, c'est un signal.
-        print(f"  ! {nom} : publié mais sans « {PROP_PUBLICATION} », relance impossible")
         return None
 
     age = (aujourdhui - publie_le).days
