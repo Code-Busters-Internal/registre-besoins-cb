@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Garde-fou : aucun secret ne doit pouvoir partir sur GitHub, même déplacé par erreur.
+*.local
+*.local.*
+.env
+.env.*
+secrets*

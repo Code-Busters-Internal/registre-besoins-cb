@@ -1,0 +1,38 @@
+name: Notifier les besoins internes
+
+on:
+  schedule:
+    # Toutes les 2 h de 07:00 à 17:00 UTC, du lundi au vendredi
+    # (soit 9h–19h à Paris en été, 8h–18h en hiver).
+    - cron: "0 7-17/2 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Ne rien poster, seulement afficher ce qui serait envoyé"
+        type: boolean
+        default: true
+
+# Deux exécutions simultanées pourraient annoncer deux fois le même besoin :
+# on sérialise, sans annuler celle qui tourne déjà.
+concurrency:
+  group: notifier-besoins
+  cancel-in-progress: false
+
+jobs:
+  notifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Aucune dépendance à installer : le script n'utilise que la stdlib.
+      - name: Annonces et relances
+        run: python notify.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
