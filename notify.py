@@ -119,7 +119,7 @@ def besoins_publies(token, database_id):
 def index_candidatures(token, database_id):
     """{id du besoin (sans tirets): nombre de candidatures hors brouillon}.
 
-    La base des besoins n'expose aucune relation vers les candidatures : `Projet` est
+    La base des besoins n'expose aucune relation vers les candidatures : `Besoin` est
     une relation à sens unique, portée par la base des candidatures. Aucun rollup ne
     peut donc compter les candidats depuis le besoin — un « Nb intéressés » avait été
     tenté, il renvoyait null en permanence et a été retiré le 2026-08-10. On agrège
@@ -130,7 +130,7 @@ def index_candidatures(token, database_id):
         props = page["properties"]
         if nom_select(props.get("Statut")) in STATUTS_IGNORES:
             continue
-        for lien in props.get("Projet", {}).get("relation", []):
+        for lien in props.get("Besoin", {}).get("relation", []):
             cle = sans_tirets(lien.get("id"))
             index[cle] = index.get(cle, 0) + 1
     return index

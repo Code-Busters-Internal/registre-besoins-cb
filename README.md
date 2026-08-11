@@ -33,7 +33,7 @@ Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
 
 ## Comptage des candidatures
 
-La base des besoins n'expose **aucune relation** vers les candidatures : `Projet` est une
+La base des besoins n'expose **aucune relation** vers les candidatures : `Besoin` est une
 relation à sens unique, portée par la base des candidatures. Aucun rollup ne peut donc
 compter les candidats depuis le besoin — un `Nb intéressés` avait été tenté, il renvoyait
 `null` en permanence et a été retiré le 2026-08-10. S'y fier aurait fait relancer des
@@ -49,7 +49,7 @@ Le job lit donc la base des candidatures et agrège lui-même par besoin. C'est 
 | `Intéressé`, `Retenu` | oui | quelqu'un est sur le coup |
 
 Corollaire à garder en tête : côté vitrine, **le nombre de candidats n'est plus affiché**
-aux Busters. Le rétablir demanderait de passer `Projet` en relation bidirectionnelle, puis
+aux Busters. Le rétablir demanderait de passer `Besoin` en relation bidirectionnelle, puis
 d'ajouter un rollup sur la base des besoins.
 
 ## Règles
