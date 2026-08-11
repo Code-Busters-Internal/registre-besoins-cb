@@ -40,9 +40,13 @@ compter les candidats depuis le besoin — un `Nb intéressés` avait été tent
 besoins déjà pourvus.
 
 Le job lit donc la base des candidatures et agrège lui-même par besoin. C'est fiable, et
-ça permet surtout d'**exclure les brouillons** : le bouton « Candidater » crée la
-candidature en `Statut = Brouillon`, elle ne devient un vrai candidat qu'une fois validée
-par son auteur.
+ça permet surtout de **choisir ce qui compte comme candidat** :
+
+| `Statut` | Compte ? | Pourquoi |
+|---|---|---|
+| `Brouillon` | non | le bouton « Candidater » crée la candidature dans cet état ; elle ne vaut qu'une fois validée par son auteur |
+| `Décliné` | non | le déposant a refusé ce candidat, donc le besoin cherche toujours quelqu'un — c'est précisément là que la relance sert |
+| `Intéressé`, `Retenu` | oui | quelqu'un est sur le coup |
 
 Corollaire à garder en tête : côté vitrine, **le nombre de candidats n'est plus affiché**
 aux Busters. Le rétablir demanderait de passer `Projet` en relation bidirectionnelle, puis
@@ -52,7 +56,8 @@ d'ajouter un rollup sur la base des besoins.
 
 - **Annonce** : `État = Publication` et `Annoncé sur Discord` décochée.
 - **Relance** : `État = Publication`, `Annoncé sur Discord` cochée, `Relancé sur Discord`
-  décochée, **aucune candidature hors brouillon**, et publié depuis 10 à 60 jours.
+  décochée, **aucune candidature qui compte** (cf. tableau ci-dessus), et publié depuis
+  10 à 60 jours.
   Au-delà de 60 jours on n'insiste plus : le besoin relève d'un arbitrage de la commission,
   pas d'un rappel automatique.
 - Une seule relance par besoin. Si des relances répétées s'avèrent nécessaires à l'usage,

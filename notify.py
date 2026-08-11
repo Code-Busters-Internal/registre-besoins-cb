@@ -36,9 +36,13 @@ USER_AGENT = "RegistreBesoinsCB/1.0 (+https://github.com/Code-Busters-Internal/r
 RELANCE_APRES_JOURS = 10  # âge minimum d'un besoin sans candidature pour être relancé
 RELANCE_AGE_MAX = 60  # au-delà, on n'insiste plus : c'est à la commission de trancher
 
-# Une candidature encore en brouillon n'est pas un candidat : le bouton « Candidater »
-# la crée dans cet état, elle ne compte qu'une fois validée par son auteur.
-STATUTS_IGNORES = {"Brouillon"}
+# Ne comptent pas comme un candidat :
+#  - « Brouillon » : le bouton « Candidater » crée la candidature dans cet état, elle ne
+#    vaut qu'une fois validée par son auteur ;
+#  - « Décliné » : le déposant a refusé, donc le besoin cherche toujours quelqu'un — c'est
+#    précisément un cas où la relance est utile.
+# « Intéressé » et « Retenu » comptent : quelqu'un est sur le coup.
+STATUTS_IGNORES = {"Brouillon", "Décliné"}
 
 PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
@@ -232,9 +236,11 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     url = page["url"]
     objectif = texte_riche(props.get("Objectif"))
 
-    # Le compteur de relance a besoin d'un point de départ. Une automatisation Notion
-    # le pose au passage en Publication, mais elle ne couvre pas les besoins arrivés
-    # autrement (import, API, bascule en masse) : on rattrape ici.
+    # Le compteur de relance a besoin d'un point de départ, et le job en est le seul
+    # consommateur : il le pose donc lui-même, au premier passage où le besoin apparaît
+    # en Publication sans date (l'automatisation Notion essayée le 2026-08-10 ne
+    # remplissait rien). La date est celle du cron, pas de l'instant du changement
+    # d'état — sans conséquence pour un seuil à 10 jours.
     publie_le = date_debut(props.get(PROP_PUBLICATION))
     if publie_le is None:
         publie_le = aujourdhui
