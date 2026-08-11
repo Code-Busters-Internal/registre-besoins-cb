@@ -73,6 +73,18 @@ placé pour la poser : un mécanisme de moins à maintenir. Contrepartie : la da
 du passage du cron, pas de l'instant exact du changement d'état — sans conséquence pour un
 seuil à 10 jours.
 
+## La procédure de candidature est dans le message
+
+Le lien posté est celui de **la page du besoin** — c'est l'URL que Notion expose, et
+c'est aussi celle qu'on partage à la main sur Discord. Cette page s'ouvre sur une
+vingtaine de propriétés : un mode d'emploi placé dans son corps passerait sous la ligne
+de flottaison, personne ne le lirait.
+
+Les deux messages rappellent donc la procédure en une phrase (constante `PROCEDURE`) :
+cliquer sur **Candidater**, puis écrire sa **Motivation**, faute de quoi la candidature
+reste un brouillon invisible. Le même texte figure sur la page d'accueil du registre et
+dans la description du champ `Motivation`, pour ceux qui arrivent autrement.
+
 ## Configuration
 
 Trois secrets de dépôt (Settings → Secrets and variables → Actions) :

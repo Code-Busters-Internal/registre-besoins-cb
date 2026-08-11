@@ -44,6 +44,16 @@ RELANCE_AGE_MAX = 60  # au-delà, on n'insiste plus : c'est à la commission de 
 # « Intéressé » et « Retenu » comptent : quelqu'un est sur le coup.
 STATUTS_IGNORES = {"Brouillon", "Décliné"}
 
+# Le lien posté mène à la page du besoin, pas à la page d'accueil du registre : c'est
+# l'URL que Notion expose et c'est aussi celle que Valmon partage à la main. Or cette
+# page ouvre sur une vingtaine de propriétés — un mode d'emploi placé dans son corps
+# serait sous la ligne de flottaison. La procédure voyage donc avec le lien.
+PROCEDURE = (
+    "Clique sur **Candidater** sur la page, puis écris ta **Motivation** : "
+    "c'est elle qui valide ta candidature et prévient le déposant. "
+    "Sans motivation, elle reste un brouillon que personne ne voit."
+)
+
 PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
 PROP_PUBLICATION = "Date de publication"
@@ -207,7 +217,8 @@ def message_annonce(nom, objectif, categorie, url):
         lignes.append(f"> {objectif}")
     if categorie:
         lignes.append(f"*Catégorie : {categorie}*")
-    lignes.append(f"Ça t'intéresse ? Candidate ici → {url}")
+    lignes.append(f"Ça t'intéresse ? → {url}")
+    lignes.append(PROCEDURE)
     return "\n".join(lignes)
 
 
@@ -219,6 +230,7 @@ def message_relance(nom, objectif, age, url):
     if objectif:
         lignes.append(f"> {objectif}")
     lignes.append(f"Un volontaire ? → {url}")
+    lignes.append(PROCEDURE)
     return "\n".join(lignes)
 
 
