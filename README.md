@@ -44,7 +44,7 @@ Le job lit donc la base des candidatures et agrège lui-même par besoin. C'est 
 
 | `Statut` | Compte ? | Pourquoi |
 |---|---|---|
-| `Brouillon` | non | le bouton « Candidater » crée la candidature dans cet état ; elle ne vaut qu'une fois validée par son auteur |
+| `Brouillon` | non | le bouton « Candidater » crée la candidature dans cet état ; une automatisation Notion la bascule en `Intéressé` dès que la `Motivation` est remplie, ce qui fait de ce champ le geste de validation |
 | `Décliné` | non | le déposant a refusé ce candidat, donc le besoin cherche toujours quelqu'un — c'est précisément là que la relance sert |
 | `Intéressé`, `Retenu` | oui | quelqu'un est sur le coup |
 
