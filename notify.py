@@ -54,6 +54,18 @@ PROCEDURE = (
     "Sans motivation, elle reste un brouillon que personne ne voit."
 )
 
+# « Objectif » a été renommé « Le besoin en une phrase » le 2026-09-08. Le job tournant
+# depuis GitHub Actions, le code déployé et le schéma Notion ne changent jamais au même
+# instant : on lit donc les deux noms, ce qui rend la migration insensible à l'ordre.
+# L'ancien nom pourra être retiré une fois le renommage confirmé en prod.
+PROP_PHRASE = "Le besoin en une phrase"
+PROP_PHRASE_AVANT_20260908 = "Objectif"
+
+# Ajouté le 2026-09-08 : tout besoin publié ne cherche pas forcément des contributeurs.
+# On ne se tait QUE sur un « Non » explicite — une valeur vide garde le comportement
+# d'avant (annonce + relance), pour ne pas rendre muets les besoins déjà en base.
+PROP_CONTRIBUTEURS = "Besoin de contributeurs"
+
 PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
 PROP_PUBLICATION = "Date de publication"
@@ -211,24 +223,33 @@ def post_discord(webhook_url, content):
         raise RuntimeError(f"Discord → {error.code} : {detail}") from error
 
 
-def message_annonce(nom, objectif, categorie, url):
+def message_annonce(nom, phrase, categorie, url, cherche_contributeurs=True):
+    """L'annonce d'un besoin publié.
+
+    Sans recherche de contributeurs, le besoin est quand même annoncé — la visibilité
+    est la raison d'être du registre — mais on retire l'appel à candidater, qui serait
+    une sollicitation pour rien.
+    """
     lignes = [f"📥 **Nouveau besoin interne publié — {nom}**"]
-    if objectif:
-        lignes.append(f"> {objectif}")
+    if phrase:
+        lignes.append(f"> {phrase}")
     if categorie:
         lignes.append(f"*Catégorie : {categorie}*")
-    lignes.append(f"Ça t'intéresse ? → {url}")
-    lignes.append(PROCEDURE)
+    if cherche_contributeurs:
+        lignes.append(f"Ça t'intéresse ? → {url}")
+        lignes.append(PROCEDURE)
+    else:
+        lignes.append(f"Pour info, ce besoin ne cherche pas de contributeur → {url}")
     return "\n".join(lignes)
 
 
-def message_relance(nom, objectif, age, url):
+def message_relance(nom, phrase, age, url):
     lignes = [
         f"⏰ **Toujours personne sur ce besoin — {nom}**",
         f"Publié il y a {age} jours, aucune candidature pour l'instant.",
     ]
-    if objectif:
-        lignes.append(f"> {objectif}")
+    if phrase:
+        lignes.append(f"> {phrase}")
     lignes.append(f"Un volontaire ? → {url}")
     lignes.append(PROCEDURE)
     return "\n".join(lignes)
@@ -246,7 +267,10 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     props = page["properties"]
     nom = texte_titre(props.get("Nom")) or "(sans titre)"
     url = page["url"]
-    objectif = texte_riche(props.get("Objectif"))
+    phrase = texte_riche(props.get(PROP_PHRASE)) or texte_riche(
+        props.get(PROP_PHRASE_AVANT_20260908)
+    )
+    cherche_contributeurs = nom_select(props.get(PROP_CONTRIBUTEURS)) != "Non"
 
     # Le compteur de relance a besoin d'un point de départ, et le job en est le seul
     # consommateur : il le pose donc lui-même, au premier passage où le besoin apparaît
@@ -260,11 +284,18 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
         print(f"  · {nom} : « {PROP_PUBLICATION} » initialisée au {aujourdhui}")
 
     if not coche(props.get(PROP_ANNONCE)):
-        post_discord(webhook_url, message_annonce(nom, objectif, nom_select(props.get("Catégorie")), url))
+        post_discord(
+            webhook_url,
+            message_annonce(
+                nom, phrase, nom_select(props.get("Catégorie")), url, cherche_contributeurs
+            ),
+        )
         cocher(token, page["id"], PROP_ANNONCE)
         print(f"  → annonce postée : {nom}")
         return "annonce"
 
+    if not cherche_contributeurs:
+        return None
     if coche(props.get(PROP_RELANCE)):
         return None
     if candidatures is None or candidatures > 0:
@@ -274,7 +305,7 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     if age < RELANCE_APRES_JOURS or age > RELANCE_AGE_MAX:
         return None
 
-    post_discord(webhook_url, message_relance(nom, objectif, age, url))
+    post_discord(webhook_url, message_relance(nom, phrase, age, url))
     cocher(token, page["id"], PROP_RELANCE)
     print(f"  → relance postée ({age} j sans candidature) : {nom}")
     return "relance"
