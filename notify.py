@@ -83,6 +83,7 @@ PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
 PROP_PUBLICATION = "Date de publication"
 PROP_RAPPEL_PREVALIDATION = "Rappel pré-validation envoyé"
+PROP_PREVALIDATION_DEPUIS = "En pré-validation depuis"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -281,8 +282,9 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
     besoin directement en Pré-validation, c'est son état d'entrée. Notion n'expose pas
     la date d'un changement d'état, et poser une date à la première vue (comme pour
     « Date de publication ») retarderait d'autant le rappel des besoins déjà en attente.
-    Limite connue : un besoin RAMENÉ en Pré-validation depuis un autre état, et jamais
-    rappelé, le serait au passage suivant — cas non rencontré à ce jour.
+    « En pré-validation depuis », si elle est remplie à la main, prime : c'est le moyen
+    de recaler le compteur d'un besoin RAMENÉ en Pré-validation depuis un autre état,
+    que sa date de création ferait sinon rappeler aussitôt.
 
     Un seul message pour tous les besoins dus, plutôt qu'un par besoin : au premier
     déploiement, tout l'arriéré arrive d'un coup.
@@ -292,7 +294,10 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
         props = page["properties"]
         if coche(props.get(PROP_RAPPEL_PREVALIDATION)):
             continue
-        age = (aujourdhui - date.fromisoformat(page["created_time"][:10])).days
+        depuis = date_debut(props.get(PROP_PREVALIDATION_DEPUIS)) or date.fromisoformat(
+            page["created_time"][:10]
+        )
+        age = (aujourdhui - depuis).days
         if age < RAPPEL_PREVALIDATION_JOURS:
             continue
         dus.append((page, props, age))

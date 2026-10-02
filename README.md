@@ -76,8 +76,9 @@ d'ajouter un rollup sur la base des besoins.
 
   Le point de départ est la **date de création** de la page, parce que le formulaire crée
   tout besoin directement en Pré-validation et que Notion n'expose pas la date d'un
-  changement d'état. Limite : un besoin *ramené* en Pré-validation depuis un autre état,
-  et jamais rappelé, le serait au passage suivant.
+  changement d'état. La date `En pré-validation depuis`, si on la remplit à la main,
+  prime sur la date de création : c'est elle qu'on règle pour un besoin *ramené* en
+  Pré-validation depuis un autre état, ou pour tester.
 
 `Date de publication` est posée **par le job lui-même**, au premier passage où un besoin
 apparaît en Publication sans date. C'est le point de départ du compteur de relance.
