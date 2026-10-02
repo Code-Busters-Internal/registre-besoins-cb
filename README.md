@@ -71,9 +71,7 @@ d'ajouter un rollup sur la base des besoins.
   tournant qu'en semaine, un délai échu le week-end part le lundi). Tous les besoins dus
   partent dans **un seul message** (découpé s'il dépasse la limite Discord), posté sur le
   channel de `DISCORD_WEBHOOK_PREVALIDATION_URL`. Il rappelle que chaque demande s'examine **avec
-  son déposant**, pour passer son État en `Publication` (où l'on cherche l'owner) ou en
-  `Rejeté` — ou directement en `Cadrage métier` si l'owner est déjà connu et qu'aucun
-  contributeur n'est nécessaire. Il se répète tant que le
+  son déposant**, puis que le responsable renseigne le champ `Décision`. Il se répète tant que le
   besoin reste en Pré-validation.
 
   Le point de départ est la **date de création** de la page, parce que le formulaire crée
@@ -91,6 +89,23 @@ Cadrage métier). Le job étant le seul consommateur de cette date, il est aussi
 placé pour la poser : un mécanisme de moins à maintenir. Contrepartie : la date est celle
 du passage du cron, pas de l'instant exact du changement d'état — sans conséquence pour un
 seuil à 10 jours.
+
+## Sortie de Pré-validation : le champ `Décision`
+
+Le validateur ne change pas l'État à la main : il renseigne `Décision`, et deux
+automatisations **Notion** (pas ce job) déplacent le besoin dans la seconde. Elles ne
+s'appliquent qu'à un besoin en `Pré-validation`.
+
+| `Décision` | Owner renseigné et `Besoin de contributeurs = Non` ? | Nouvel État |
+|---|---|---|
+| `Go` | oui | `Cadrage métier` |
+| `Go` | non | `Publication` (on y cherche l'owner, relances comprises) |
+| `No-go` | — | `Rejeté` |
+
+L'automatisation `Go` calcule l'État par une formule :
+`if(and(not(empty(Page.Owner)), Page.Besoin de contributeurs == "Non"), "Cadrage métier", "Publication")`.
+Il faut donc renseigner l'Owner et `Besoin de contributeurs` **avant** de mettre `Go`.
+Testé le 2026-10-02 sur les quatre combinaisons, État mis à jour en ~10 s.
 
 ## La procédure de candidature est dans le message
 
