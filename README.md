@@ -1,9 +1,9 @@
 # Notifier — Registre des besoins internes CB
 
 Poste sur le channel Discord `#besoins-internes` les besoins internes qui passent en
-**Publication**, et relance ceux que personne ne prend au bout de 10 jours.
-Sur un second channel, il rappelle les besoins restés **5 jours en Pré-validation**
-sans que personne n'ait statué.
+**Publication**, puis les relance tous les 10 jours tant qu'ils n'ont pas d'**Owner**.
+Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
+**Pré-validation**.
 
 Le job **interroge Notion**, il n'expose aucune URL et n'attend aucun appel entrant.
 Il tourne toutes les 2 h en heures ouvrées via GitHub Actions.
@@ -23,13 +23,19 @@ conséquence.
 
 ## Idempotence
 
-Aucun état n'est stocké ici. Deux cases à cocher dans Notion font mémoire :
+Aucun état n'est stocké ici. Trois propriétés Notion font mémoire :
 
 | Propriété | Rôle |
 |---|---|
 | `Annoncé sur Discord` | cochée après l'annonce, empêche de la reposter |
-| `Relancé sur Discord` | cochée après la relance, empêche de relancer en boucle |
-| `Rappel pré-validation envoyé` | cochée après le rappel de pré-validation, un seul par besoin |
+| `Dernière relance Discord` | date de la dernière relance, espace les suivantes de 10 jours |
+| `Dernier rappel pré-validation` | date du dernier rappel, espace les suivants de 5 jours |
+
+Les cases `Relancé sur Discord` et `Rappel pré-validation envoyé` datent de l'époque où
+chaque message ne partait qu'une fois (jusqu'au 2026-10-02). Le job ne les lit plus que
+pour migrer : une case cochée sans date est datée du jour, ce qui décale le prochain
+envoi d'un cycle au lieu de le doubler. Elles pourront être supprimées une fois vides de
+sens.
 
 Le job peut donc tourner en double, échouer et redémarrer sans jamais poster deux fois.
 Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
@@ -58,21 +64,20 @@ d'ajouter un rollup sur la base des besoins.
 ## Règles
 
 - **Annonce** : `État = Publication` et `Annoncé sur Discord` décochée.
-- **Relance** : `État = Publication`, `Annoncé sur Discord` cochée, `Relancé sur Discord`
-  décochée, **aucune candidature qui compte** (cf. tableau ci-dessus), et publié depuis
-  10 à 60 jours.
-  Au-delà de 60 jours on n'insiste plus : le besoin relève d'un arbitrage de la commission,
-  pas d'un rappel automatique.
-- Une seule relance par besoin. Si des relances répétées s'avèrent nécessaires à l'usage,
-  il suffira de décocher `Relancé sur Discord`.
+- **Relance** : `État = Publication`, `Annoncé sur Discord` cochée, **`Owner` vide**,
+  `Besoin de contributeurs` différent de `Non`, publié depuis 10 jours ou plus, et
+  dernière relance vieille d'au moins 10 jours. Elle se répète **sans limite de durée** :
+  renseigner un Owner (ou sortir le besoin de Publication) est la seule façon de
+  l'arrêter. Le nombre de candidatures ne décide plus de rien, il ne sert qu'au texte :
+  « aucune candidature », ou « N candidature(s), mais toujours pas d'owner désigné ».
 
-- **Rappel de pré-validation** : `État = Pré-validation`, `Rappel pré-validation envoyé`
-  décochée, et page créée depuis **5 jours ou plus** (jours calendaires ; le cron ne
+- **Rappel de pré-validation** : `État = Pré-validation`, page créée depuis **5 jours ou
+  plus**, et dernier rappel vieux d'au moins 5 jours (jours calendaires ; le cron ne
   tournant qu'en semaine, un délai échu le week-end part le lundi). Tous les besoins dus
   partent dans **un seul message** (découpé s'il dépasse la limite Discord), posté sur le
   channel de `DISCORD_WEBHOOK_PREVALIDATION_URL`. Il rappelle que chaque demande s'examine **avec
-  son déposant**, pour passer son État en `Publication` ou en `Rejeté`. Un seul rappel par besoin : décocher la
-  case pour en relancer un.
+  son déposant**, pour passer son État en `Publication` ou en `Rejeté`. Il se répète tant que le
+  besoin reste en Pré-validation.
 
   Le point de départ est la **date de création** de la page, parce que le formulaire crée
   tout besoin directement en Pré-validation et que Notion n'expose pas la date d'un
@@ -117,9 +122,8 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 `DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
 pré-validation sont désactivés.
 
-`NOTION_CANDIDATURES_DB_ID` est optionnel aussi. S'il manque, le job continue
-d'annoncer mais **ne relance plus** : sans savoir qui a candidaté, mieux vaut une relance
-manquante qu'une relance sur un besoin déjà pourvu.
+`NOTION_CANDIDATURES_DB_ID` est optionnel aussi. S'il manque, les relances partent quand
+même (c'est l'Owner qui les arrête) mais sans citer le nombre de candidatures.
 
 L'intégration Notion se crée sur <https://www.notion.so/my-integrations> (type *interne*),
 puis **la base doit lui être explicitement connectée** : ouvrir « Base des besoins

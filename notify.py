@@ -3,12 +3,14 @@
 
 Le job interroge Notion, il n'attend aucun appel entrant. Trois messages :
   - annonce : un besoin est en État = Publication et n'a pas encore été annoncé
-  - relance : un besoin publié depuis RELANCE_APRES_JOURS jours n'a aucune candidature
+  - relance : un besoin publié depuis RELANCE_APRES_JOURS jours n'a toujours pas
+    d'Owner — répétée tous les RELANCE_INTERVALLE_JOURS jours jusqu'à ce qu'il en ait un
   - rappel de pré-validation : un besoin attend en État = Pré-validation depuis
-    RAPPEL_PREVALIDATION_JOURS jours, sans que personne n'ait statué (autre channel)
+    RAPPEL_PREVALIDATION_JOURS jours — répété au même rythme tant qu'il y reste
+    (autre channel)
 
-Toute la mémoire vit dans Notion (cases « Annoncé sur Discord », « Relancé sur
-Discord » et « Rappel pré-validation envoyé »), jamais ici. Le job peut donc tourner en double, planter et redémarrer
+Toute la mémoire vit dans Notion (case « Annoncé sur Discord », dates « Dernière
+relance Discord » et « Dernier rappel pré-validation »), jamais ici. Le job peut donc tourner en double, planter et redémarrer
 sans jamais poster deux fois la même chose — et l'état reste lisible à l'œil dans
 la base.
 
@@ -38,8 +40,10 @@ NOTION_API = "https://api.notion.com/v1"
 # Exigé par Discord (voir post_discord). Un agent générique se fait rejeter par Cloudflare.
 USER_AGENT = "RegistreBesoinsCB/1.0 (+https://github.com/Code-Busters-Internal/registre-besoins-cb)"
 
-RELANCE_APRES_JOURS = 10  # âge minimum d'un besoin sans candidature pour être relancé
-RELANCE_AGE_MAX = 60  # au-delà, on n'insiste plus : c'est à la commission de trancher
+# Un besoin publié est relancé tant qu'il n'a pas d'Owner, sans limite de durée : un
+# besoin publié et sans porteur est un besoin en souffrance, il doit rester visible.
+RELANCE_APRES_JOURS = 10  # âge minimum d'un besoin publié pour être relancé
+RELANCE_INTERVALLE_JOURS = 10  # écart minimum entre deux relances d'un même besoin
 
 # Ne comptent pas comme un candidat :
 #  - « Brouillon » : le bouton « Candidater » crée la candidature dans cet état, elle ne
@@ -72,18 +76,24 @@ PROP_PHRASE_AVANT_20260908 = "Objectif"
 PROP_CONTRIBUTEURS = "Besoin de contributeurs"
 
 # Un besoin déposé reste en Pré-validation tant que le responsable de sa catégorie
-# (prévenu par e-mail au dépôt) n'a pas statué. Passé ce délai, on le rappelle — une
-# seule fois par besoin, pour ne pas transformer le channel en bruit de fond.
+# (prévenu par e-mail au dépôt) n'a pas statué. Passé ce délai, on le rappelle, puis
+# de nouveau à chaque fois que ce même délai s'écoule, tant qu'il y reste.
 RAPPEL_PREVALIDATION_JOURS = 5
 
 # Un message Discord est plafonné à 2000 caractères ; on découpe la liste en dessous.
 DISCORD_MAX_CARACTERES = 1900
 
 PROP_ANNONCE = "Annoncé sur Discord"
-PROP_RELANCE = "Relancé sur Discord"
+PROP_DERNIERE_RELANCE = "Dernière relance Discord"
 PROP_PUBLICATION = "Date de publication"
-PROP_RAPPEL_PREVALIDATION = "Rappel pré-validation envoyé"
+PROP_DERNIER_RAPPEL_PREVALIDATION = "Dernier rappel pré-validation"
 PROP_PREVALIDATION_DEPUIS = "En pré-validation depuis"
+PROP_OWNER = "Owner"
+
+# Cases à cocher d'avant le 2026-10-02, quand chaque message ne partait qu'une fois.
+# Lues seulement pour migrer (voir envoi_du) ; à retirer une fois les dates posées.
+PROP_RELANCE_AVANT_20261002 = "Relancé sur Discord"
+PROP_RAPPEL_PREVALIDATION_AVANT_20261002 = "Rappel pré-validation envoyé"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -200,6 +210,21 @@ def cocher(token, page_id, propriete):
     )
 
 
+def a_une_relation(prop):
+    return bool((prop or {}).get("relation"))
+
+
+def envoi_du(token, page_id, props, prop_dernier, prop_case_avant, intervalle, aujourdhui):
+    """Vrai si aucun message n'est parti pour cette page depuis `intervalle` jours."""
+    dernier = date_debut(props.get(prop_dernier))
+    if dernier is None and coche(props.get(prop_case_avant)):
+        # Migration : l'ancienne case dit qu'un message est parti, pas QUAND. On date cet
+        # envoi d'aujourd'hui — un rappel décalé d'un cycle plutôt qu'un doublon.
+        ecrire_date(token, page_id, prop_dernier, aujourdhui)
+        return False
+    return dernier is None or (aujourdhui - dernier).days >= intervalle
+
+
 def ecrire_date(token, page_id, propriete, jour):
     if DRY_RUN:
         print(f"    [dry-run] ecrirait « {propriete} » = {jour}")
@@ -286,19 +311,30 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
     de recaler le compteur d'un besoin RAMENÉ en Pré-validation depuis un autre état,
     que sa date de création ferait sinon rappeler aussitôt.
 
+    Le rappel se répète tous les RAPPEL_PREVALIDATION_JOURS jours tant que le besoin
+    reste en Pré-validation : sortir de cet état est la seule façon de l'arrêter.
+
     Un seul message pour tous les besoins dus, plutôt qu'un par besoin : au premier
     déploiement, tout l'arriéré arrive d'un coup.
     """
     dus = []
     for page in besoins_dans_etat(token, database_id, "Pré-validation"):
         props = page["properties"]
-        if coche(props.get(PROP_RAPPEL_PREVALIDATION)):
-            continue
         depuis = date_debut(props.get(PROP_PREVALIDATION_DEPUIS)) or date.fromisoformat(
             page["created_time"][:10]
         )
         age = (aujourdhui - depuis).days
         if age < RAPPEL_PREVALIDATION_JOURS:
+            continue
+        if not envoi_du(
+            token,
+            page["id"],
+            props,
+            PROP_DERNIER_RAPPEL_PREVALIDATION,
+            PROP_RAPPEL_PREVALIDATION_AVANT_20261002,
+            RAPPEL_PREVALIDATION_JOURS,
+            aujourdhui,
+        ):
             continue
         dus.append((page, props, age))
 
@@ -318,10 +354,10 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
     ]
     for message in messages_rappel_prevalidation(besoins):
         post_discord(webhook_url, message)
-    # Coché seulement une fois TOUT posté : si Discord échoue en cours de route, le
+    # Daté seulement une fois TOUT posté : si Discord échoue en cours de route, le
     # passage suivant reprend l'ensemble — un doublon plutôt qu'un oubli.
     for page, props, age in dus:
-        cocher(token, page["id"], PROP_RAPPEL_PREVALIDATION)
+        ecrire_date(token, page["id"], PROP_DERNIER_RAPPEL_PREVALIDATION, aujourdhui)
         print(f"  → rappel de pré-validation ({age} j) : {texte_titre(props.get('Nom'))}")
     return len(dus)
 
@@ -346,11 +382,18 @@ def message_annonce(nom, phrase, categorie, url, cherche_contributeurs=True):
     return "\n".join(lignes)
 
 
-def message_relance(nom, phrase, age, url):
-    lignes = [
-        f"⏰ **Toujours personne sur ce besoin — {nom}**",
-        f"Publié il y a {age} jours, aucune candidature pour l'instant.",
-    ]
+def message_relance(nom, phrase, age, url, candidatures):
+    """`candidatures` : nombre de candidatures hors brouillon, ou None si inconnu."""
+    if candidatures is None:
+        etat = f"Publié il y a {age} jours, toujours sans owner."
+    elif candidatures == 0:
+        etat = f"Publié il y a {age} jours, aucune candidature pour l'instant."
+    else:
+        etat = (
+            f"Publié il y a {age} jours : {candidatures} candidature(s), mais toujours "
+            "pas d'owner désigné."
+        )
+    lignes = [f"⏰ **Toujours personne sur ce besoin — {nom}**", etat]
     if phrase:
         lignes.append(f"> {phrase}")
     lignes.append(f"Un volontaire ? → {url}")
@@ -362,8 +405,8 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     """Poste au plus un message pour cette page.
 
     `candidatures` est le nombre de candidatures hors brouillon, ou None si on n'a pas
-    pu le calculer — dans ce cas on n'annonce que, sans jamais relancer : mieux vaut
-    une relance manquante qu'une relance sur un besoin déjà pourvu.
+    pu le calculer. Il ne sert qu'au texte de la relance : ce qui l'arrête, c'est qu'un
+    Owner soit renseigné, pas qu'il y ait des candidats.
 
     Retourne 'annonce', 'relance' ou None.
     """
@@ -399,18 +442,26 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
 
     if not cherche_contributeurs:
         return None
-    if coche(props.get(PROP_RELANCE)):
-        return None
-    if candidatures is None or candidatures > 0:
+    if a_une_relation(props.get(PROP_OWNER)):
         return None
 
     age = (aujourdhui - publie_le).days
-    if age < RELANCE_APRES_JOURS or age > RELANCE_AGE_MAX:
+    if age < RELANCE_APRES_JOURS:
+        return None
+    if not envoi_du(
+        token,
+        page["id"],
+        props,
+        PROP_DERNIERE_RELANCE,
+        PROP_RELANCE_AVANT_20261002,
+        RELANCE_INTERVALLE_JOURS,
+        aujourdhui,
+    ):
         return None
 
-    post_discord(webhook_url, message_relance(nom, phrase, age, url))
-    cocher(token, page["id"], PROP_RELANCE)
-    print(f"  → relance postée ({age} j sans candidature) : {nom}")
+    post_discord(webhook_url, message_relance(nom, phrase, age, url, candidatures))
+    ecrire_date(token, page["id"], PROP_DERNIERE_RELANCE, aujourdhui)
+    print(f"  → relance postée ({age} j sans owner) : {nom}")
     return "relance"
 
 
@@ -430,7 +481,7 @@ def main():
         print(f"{sum(index.values())} candidature(s) hors brouillon, sur {len(index)} besoin(s)")
     else:
         index = None
-        print("! NOTION_CANDIDATURES_DB_ID absent : relances désactivées (annonces actives).")
+        print("! NOTION_CANDIDATURES_DB_ID absent : les relances ne citeront pas le nombre de candidatures.")
 
     pages = besoins_dans_etat(token, database_id, "Publication")
     print(f"{len(pages)} besoin(s) en État = Publication")
