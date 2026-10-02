@@ -6,7 +6,8 @@ Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
 **Pré-validation**.
 
 Le job **interroge Notion**, il n'expose aucune URL et n'attend aucun appel entrant.
-Il tourne toutes les 2 h en heures ouvrées via GitHub Actions.
+Il tourne toutes les heures en heures ouvrées via GitHub Actions — GitHub en saute
+une partie quand il est chargé, le job étant idempotent ça ne fait que retarder un envoi.
 
 ## Pourquoi un job planifié plutôt qu'un webhook Notion
 
