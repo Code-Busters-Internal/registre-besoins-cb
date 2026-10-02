@@ -2,6 +2,8 @@
 
 Poste sur le channel Discord `#besoins-internes` les besoins internes qui passent en
 **Publication**, et relance ceux que personne ne prend au bout de 10 jours.
+Sur un second channel, il rappelle les besoins restés **5 jours en Pré-validation**
+sans que personne n'ait statué.
 
 Le job **interroge Notion**, il n'expose aucune URL et n'attend aucun appel entrant.
 Il tourne toutes les 2 h en heures ouvrées via GitHub Actions.
@@ -27,6 +29,7 @@ Aucun état n'est stocké ici. Deux cases à cocher dans Notion font mémoire :
 |---|---|
 | `Annoncé sur Discord` | cochée après l'annonce, empêche de la reposter |
 | `Relancé sur Discord` | cochée après la relance, empêche de relancer en boucle |
+| `Rappel pré-validation envoyé` | cochée après le rappel de pré-validation, un seul par besoin |
 
 Le job peut donc tourner en double, échouer et redémarrer sans jamais poster deux fois.
 Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
@@ -63,6 +66,19 @@ d'ajouter un rollup sur la base des besoins.
 - Une seule relance par besoin. Si des relances répétées s'avèrent nécessaires à l'usage,
   il suffira de décocher `Relancé sur Discord`.
 
+- **Rappel de pré-validation** : `État = Pré-validation`, `Rappel pré-validation envoyé`
+  décochée, et page créée depuis **5 jours ou plus** (jours calendaires ; le cron ne
+  tournant qu'en semaine, un délai échu le week-end part le lundi). Tous les besoins dus
+  partent dans **un seul message** (découpé s'il dépasse la limite Discord), posté sur le
+  channel de `DISCORD_WEBHOOK_PREVALIDATION_URL`. Il rappelle que chaque demande s'examine **avec
+  son déposant**, pour passer son État en `Publication` ou en `Rejeté`. Un seul rappel par besoin : décocher la
+  case pour en relancer un.
+
+  Le point de départ est la **date de création** de la page, parce que le formulaire crée
+  tout besoin directement en Pré-validation et que Notion n'expose pas la date d'un
+  changement d'état. Limite : un besoin *ramené* en Pré-validation depuis un autre état,
+  et jamais rappelé, le serait au passage suivant.
+
 `Date de publication` est posée **par le job lui-même**, au premier passage où un besoin
 apparaît en Publication sans date. C'est le point de départ du compteur de relance.
 
@@ -87,7 +103,7 @@ dans la description du champ `Motivation`, pour ceux qui arrivent autrement.
 
 ## Configuration
 
-Trois secrets de dépôt (Settings → Secrets and variables → Actions) :
+Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 
 | Secret | Où le trouver |
 |---|---|
@@ -95,8 +111,12 @@ Trois secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `NOTION_DATABASE_ID` | id de « Base des besoins internes » dans son URL |
 | `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un besoin » |
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
+| `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
 
-`NOTION_CANDIDATURES_DB_ID` est le seul optionnel. S'il manque, le job continue
+`DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
+pré-validation sont désactivés.
+
+`NOTION_CANDIDATURES_DB_ID` est optionnel aussi. S'il manque, le job continue
 d'annoncer mais **ne relance plus** : sans savoir qui a candidaté, mieux vaut une relance
 manquante qu'une relance sur un besoin déjà pourvu.
 

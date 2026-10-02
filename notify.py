@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Annonce sur Discord les besoins internes publiés, et relance ceux que personne ne prend.
 
-Le job interroge Notion, il n'attend aucun appel entrant. Deux messages :
+Le job interroge Notion, il n'attend aucun appel entrant. Trois messages :
   - annonce : un besoin est en État = Publication et n'a pas encore été annoncé
   - relance : un besoin publié depuis RELANCE_APRES_JOURS jours n'a aucune candidature
+  - rappel de pré-validation : un besoin attend en État = Pré-validation depuis
+    RAPPEL_PREVALIDATION_JOURS jours, sans que personne n'ait statué (autre channel)
 
-Toute la mémoire vit dans Notion (cases « Annoncé sur Discord » et « Relancé sur
-Discord »), jamais ici. Le job peut donc tourner en double, planter et redémarrer
+Toute la mémoire vit dans Notion (cases « Annoncé sur Discord », « Relancé sur
+Discord » et « Rappel pré-validation envoyé »), jamais ici. Le job peut donc tourner en double, planter et redémarrer
 sans jamais poster deux fois la même chose — et l'état reste lisible à l'œil dans
 la base.
 
@@ -15,6 +17,9 @@ Variables d'environnement :
   NOTION_DATABASE_ID          id de « Base des besoins internes »
   NOTION_CANDIDATURES_DB_ID   id de « Base de candidatures à un besoin »
   DISCORD_WEBHOOK_URL         webhook entrant du channel dédié
+  DISCORD_WEBHOOK_PREVALIDATION_URL
+                              webhook du channel des rappels de pré-validation ;
+                              optionnel, son absence désactive seulement ces rappels
   DRY_RUN                     à 1, affiche ce qui partirait sans rien poster ni écrire
 """
 
@@ -66,9 +71,18 @@ PROP_PHRASE_AVANT_20260908 = "Objectif"
 # d'avant (annonce + relance), pour ne pas rendre muets les besoins déjà en base.
 PROP_CONTRIBUTEURS = "Besoin de contributeurs"
 
+# Un besoin déposé reste en Pré-validation tant que le responsable de sa catégorie
+# (prévenu par e-mail au dépôt) n'a pas statué. Passé ce délai, on le rappelle — une
+# seule fois par besoin, pour ne pas transformer le channel en bruit de fond.
+RAPPEL_PREVALIDATION_JOURS = 5
+
+# Un message Discord est plafonné à 2000 caractères ; on découpe la liste en dessous.
+DISCORD_MAX_CARACTERES = 1900
+
 PROP_ANNONCE = "Annoncé sur Discord"
 PROP_RELANCE = "Relancé sur Discord"
 PROP_PUBLICATION = "Date de publication"
+PROP_RAPPEL_PREVALIDATION = "Rappel pré-validation envoyé"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -122,9 +136,9 @@ def pages_de_base(token, database_id, payload_base=None):
         cursor = data["next_cursor"]
 
 
-def besoins_publies(token, database_id):
+def besoins_dans_etat(token, database_id, etat):
     return pages_de_base(
-        token, database_id, {"filter": {"property": "État", "select": {"equals": "Publication"}}}
+        token, database_id, {"filter": {"property": "État", "select": {"equals": etat}}}
     )
 
 
@@ -223,6 +237,90 @@ def post_discord(webhook_url, content):
         raise RuntimeError(f"Discord → {error.code} : {detail}") from error
 
 
+def nom_createur(prop):
+    return ((prop or {}).get("created_by") or {}).get("name", "")
+
+
+def messages_rappel_prevalidation(besoins):
+    """Un ou plusieurs messages listant les besoins en attente, chacun sous la limite Discord.
+
+    `besoins` : liste de (nom, catégorie, déposant, âge en jours, url).
+    """
+    entete = (
+        f"⏳ **Besoins en Pré-validation depuis plus de {RAPPEL_PREVALIDATION_JOURS} jours** "
+        "— personne n'a encore statué :"
+    )
+    pied = (
+        "👉 Chaque demande doit être **examinée avec son déposant** par le responsable de "
+        "sa catégorie (prévenu par e-mail au dépôt), afin de passer son **État** en "
+        "`Publication` ou en `Rejeté`."
+    )
+    lignes = []
+    for nom, categorie, deposant, age, url in besoins:
+        details = " · ".join(
+            x for x in (categorie, f"déposé par {deposant}" if deposant else "", f"il y a {age} j") if x
+        )
+        # Lien masqué et chevrons : sans eux, Discord déplie un aperçu par besoin listé.
+        lignes.append(f"• **{nom}** — {details} → [ouvrir](<{url}>)")
+
+    messages, courant = [], [entete]
+    for ligne in lignes:
+        if len("\n".join(courant + [ligne, pied])) > DISCORD_MAX_CARACTERES:
+            messages.append("\n".join(courant))
+            courant = [entete + " *(suite)*"]
+        courant.append(ligne)
+    courant.append(pied)
+    messages.append("\n".join(courant))
+    return messages
+
+
+def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
+    """Poste un rappel groupé pour les besoins coincés en Pré-validation. Retourne leur nombre.
+
+    Le point de départ est la création de la page : le formulaire de dépôt crée tout
+    besoin directement en Pré-validation, c'est son état d'entrée. Notion n'expose pas
+    la date d'un changement d'état, et poser une date à la première vue (comme pour
+    « Date de publication ») retarderait d'autant le rappel des besoins déjà en attente.
+    Limite connue : un besoin RAMENÉ en Pré-validation depuis un autre état, et jamais
+    rappelé, le serait au passage suivant — cas non rencontré à ce jour.
+
+    Un seul message pour tous les besoins dus, plutôt qu'un par besoin : au premier
+    déploiement, tout l'arriéré arrive d'un coup.
+    """
+    dus = []
+    for page in besoins_dans_etat(token, database_id, "Pré-validation"):
+        props = page["properties"]
+        if coche(props.get(PROP_RAPPEL_PREVALIDATION)):
+            continue
+        age = (aujourdhui - date.fromisoformat(page["created_time"][:10])).days
+        if age < RAPPEL_PREVALIDATION_JOURS:
+            continue
+        dus.append((page, props, age))
+
+    if not dus:
+        return 0
+
+    dus.sort(key=lambda d: -d[2])  # les plus anciens d'abord
+    besoins = [
+        (
+            texte_titre(props.get("Nom")) or "(sans titre)",
+            nom_select(props.get("Catégorie")),
+            nom_createur(props.get("Créé par")),
+            age,
+            page["url"],
+        )
+        for page, props, age in dus
+    ]
+    for message in messages_rappel_prevalidation(besoins):
+        post_discord(webhook_url, message)
+    # Coché seulement une fois TOUT posté : si Discord échoue en cours de route, le
+    # passage suivant reprend l'ensemble — un doublon plutôt qu'un oubli.
+    for page, props, age in dus:
+        cocher(token, page["id"], PROP_RAPPEL_PREVALIDATION)
+        print(f"  → rappel de pré-validation ({age} j) : {texte_titre(props.get('Nom'))}")
+    return len(dus)
+
+
 def message_annonce(nom, phrase, categorie, url, cherche_contributeurs=True):
     """L'annonce d'un besoin publié.
 
@@ -316,6 +414,7 @@ def main():
     database_id = env("NOTION_DATABASE_ID")
     webhook_url = env("DISCORD_WEBHOOK_URL")
     candidatures_db = os.environ.get("NOTION_CANDIDATURES_DB_ID")
+    webhook_prevalidation = os.environ.get("DISCORD_WEBHOOK_PREVALIDATION_URL")
     aujourdhui = date.today()
 
     if DRY_RUN:
@@ -328,7 +427,7 @@ def main():
         index = None
         print("! NOTION_CANDIDATURES_DB_ID absent : relances désactivées (annonces actives).")
 
-    pages = besoins_publies(token, database_id)
+    pages = besoins_dans_etat(token, database_id, "Publication")
     print(f"{len(pages)} besoin(s) en État = Publication")
 
     annonces = relances = 0
@@ -340,7 +439,13 @@ def main():
         elif resultat == "relance":
             relances += 1
 
-    print(f"\nTerminé : {annonces} annonce(s), {relances} relance(s).")
+    if webhook_prevalidation:
+        rappels = rappeler_prevalidations(token, database_id, webhook_prevalidation, aujourdhui)
+    else:
+        rappels = 0
+        print("! DISCORD_WEBHOOK_PREVALIDATION_URL absent : rappels de pré-validation désactivés.")
+
+    print(f"\nTerminé : {annonces} annonce(s), {relances} relance(s), {rappels} rappel(s) de pré-validation.")
 
 
 if __name__ == "__main__":
