@@ -76,7 +76,9 @@ d'ajouter un rollup sur la base des besoins.
   tournant qu'en semaine, un délai échu le week-end part le lundi). Tous les besoins dus
   partent dans **un seul message** (découpé s'il dépasse la limite Discord), posté sur le
   channel de `DISCORD_WEBHOOK_PREVALIDATION_URL`. Il rappelle que chaque demande s'examine **avec
-  son déposant**, pour passer son État en `Publication` ou en `Rejeté`. Il se répète tant que le
+  son déposant**, pour passer son État en `Publication` (où l'on cherche l'owner) ou en
+  `Rejeté` — ou directement en `Cadrage métier` si l'owner est déjà connu et qu'aucun
+  contributeur n'est nécessaire. Il se répète tant que le
   besoin reste en Pré-validation.
 
   Le point de départ est la **date de création** de la page, parce que le formulaire crée

@@ -279,7 +279,9 @@ def messages_rappel_prevalidation(besoins):
     pied = (
         "👉 Chaque demande doit être **examinée avec son déposant** par le responsable de "
         "sa catégorie (prévenu par e-mail au dépôt), afin de passer son **État** en "
-        "`Publication` ou en `Rejeté`."
+        "`Publication` (pour lui trouver un owner) ou en `Rejeté`. Si un owner est déjà "
+        "identifié et qu'aucun contributeur n'est nécessaire : renseigner l'**Owner** et "
+        "passer directement en `Cadrage métier`."
     )
     lignes = []
     for nom, categorie, deposant, age, url in besoins:
