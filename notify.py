@@ -90,11 +90,6 @@ PROP_DERNIER_RAPPEL_PREVALIDATION = "Dernier rappel pré-validation"
 PROP_PREVALIDATION_DEPUIS = "En pré-validation depuis"
 PROP_OWNER = "Owner"
 
-# Cases à cocher d'avant le 2026-10-02, quand chaque message ne partait qu'une fois.
-# Lues seulement pour migrer (voir envoi_du) ; à retirer une fois les dates posées.
-PROP_RELANCE_AVANT_20261002 = "Relancé sur Discord"
-PROP_RAPPEL_PREVALIDATION_AVANT_20261002 = "Rappel pré-validation envoyé"
-
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 
@@ -214,14 +209,9 @@ def a_une_relation(prop):
     return bool((prop or {}).get("relation"))
 
 
-def envoi_du(token, page_id, props, prop_dernier, prop_case_avant, intervalle, aujourdhui):
+def envoi_du(props, prop_dernier, intervalle, aujourdhui):
     """Vrai si aucun message n'est parti pour cette page depuis `intervalle` jours."""
     dernier = date_debut(props.get(prop_dernier))
-    if dernier is None and coche(props.get(prop_case_avant)):
-        # Migration : l'ancienne case dit qu'un message est parti, pas QUAND. On date cet
-        # envoi d'aujourd'hui — un rappel décalé d'un cycle plutôt qu'un doublon.
-        ecrire_date(token, page_id, prop_dernier, aujourdhui)
-        return False
     return dernier is None or (aujourdhui - dernier).days >= intervalle
 
 
@@ -329,13 +319,7 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
         if age < RAPPEL_PREVALIDATION_JOURS:
             continue
         if not envoi_du(
-            token,
-            page["id"],
-            props,
-            PROP_DERNIER_RAPPEL_PREVALIDATION,
-            PROP_RAPPEL_PREVALIDATION_AVANT_20261002,
-            RAPPEL_PREVALIDATION_JOURS,
-            aujourdhui,
+            props, PROP_DERNIER_RAPPEL_PREVALIDATION, RAPPEL_PREVALIDATION_JOURS, aujourdhui
         ):
             continue
         dus.append((page, props, age))
@@ -450,15 +434,7 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     age = (aujourdhui - publie_le).days
     if age < RELANCE_APRES_JOURS:
         return None
-    if not envoi_du(
-        token,
-        page["id"],
-        props,
-        PROP_DERNIERE_RELANCE,
-        PROP_RELANCE_AVANT_20261002,
-        RELANCE_INTERVALLE_JOURS,
-        aujourdhui,
-    ):
+    if not envoi_du(props, PROP_DERNIERE_RELANCE, RELANCE_INTERVALLE_JOURS, aujourdhui):
         return None
 
     post_discord(webhook_url, message_relance(nom, phrase, age, url, candidatures))

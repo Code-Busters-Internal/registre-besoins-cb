@@ -32,12 +32,6 @@ Aucun état n'est stocké ici. Trois propriétés Notion font mémoire :
 | `Dernière relance Discord` | date de la dernière relance, espace les suivantes de 10 jours |
 | `Dernier rappel pré-validation` | date du dernier rappel, espace les suivants de 5 jours |
 
-Les cases `Relancé sur Discord` et `Rappel pré-validation envoyé` datent de l'époque où
-chaque message ne partait qu'une fois (jusqu'au 2026-10-02). Le job ne les lit plus que
-pour migrer : une case cochée sans date est datée du jour, ce qui décale le prochain
-envoi d'un cycle au lieu de le doubler. Elles pourront être supprimées une fois vides de
-sens.
-
 Le job peut donc tourner en double, échouer et redémarrer sans jamais poster deux fois.
 Et l'état reste lisible à l'œil dans la base, sans consulter de logs.
 
