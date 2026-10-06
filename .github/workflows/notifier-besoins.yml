@@ -39,6 +39,7 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           NOTION_CANDIDATURES_DB_ID: ${{ secrets.NOTION_CANDIDATURES_DB_ID }}
+          NOTION_DESTAFF_DB_ID: ${{ secrets.NOTION_DESTAFF_DB_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_WEBHOOK_PREVALIDATION_URL: ${{ secrets.DISCORD_WEBHOOK_PREVALIDATION_URL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}

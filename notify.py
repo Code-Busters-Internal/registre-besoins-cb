@@ -22,6 +22,8 @@ Variables d'environnement :
   DISCORD_WEBHOOK_PREVALIDATION_URL
                               webhook du channel des rappels de pré-validation ;
                               optionnel, son absence désactive seulement ces rappels
+  NOTION_DESTAFF_DB_ID        id de « Demandes de destaff et d'intercontrat » ;
+                              optionnel, son absence désactive seulement ce volet
   DRY_RUN                     à 1, affiche ce qui partirait sans rien poster ni écrire
 """
 
@@ -89,6 +91,18 @@ PROP_PUBLICATION = "Date de publication"
 PROP_DERNIER_RAPPEL_PREVALIDATION = "Dernier rappel pré-validation"
 PROP_PREVALIDATION_DEPUIS = "En pré-validation depuis"
 PROP_OWNER = "Owner"
+
+# Base « Demandes de destaff et d'intercontrat ». Le job ne fait qu'avancer le Statut
+# selon les dates et poser la date de relance : ce sont des automatisations Notion,
+# déclenchées par ces écritures, qui envoient les mails (bilan à remplir, relance).
+# Notion ne sait pas déclencher une automatisation sur l'arrivée d'une date, d'où ce job.
+RELANCE_BILAN_JOURS = 7
+DESTAFF_STATUT = "Statut"
+DESTAFF_DEBUT = "Date de début"
+DESTAFF_FIN = "Date de fin"
+DESTAFF_TERMINE_LE = "Terminé le"
+DESTAFF_RELANCE = "Relance bilan"
+DESTAFF_BILAN = "Ce que j'ai fait"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -225,6 +239,77 @@ def ecrire_date(token, page_id, propriete, jour):
         token,
         {"properties": {propriete: {"date": {"start": jour.isoformat()}}}},
     )
+
+
+def ecrire_select(token, page_id, propriete, valeur):
+    if DRY_RUN:
+        print(f"    [dry-run] passerait « {propriete} » à {valeur}")
+        return
+    notion_request(
+        "PATCH",
+        f"/pages/{page_id}",
+        token,
+        {"properties": {propriete: {"select": {"name": valeur}}}},
+    )
+
+
+def titre_page(props):
+    """Le titre d'une page, quel que soit le nom de sa propriété titre."""
+    for prop in props.values():
+        if prop.get("type") == "title":
+            return texte_titre(prop) or "(sans titre)"
+    return "(sans titre)"
+
+
+def avancer_destaffs(token, database_id, aujourdhui):
+    """Fait avancer les demandes de destaff et d'intercontrat selon leurs dates.
+
+    - Demande validée → En cours, dès la date de début ;
+    - En cours → Terminé, le lendemain de la date de fin (un intercontrat sans date de
+      fin reste En cours : c'est le Buster qui le clôt à la main) ;
+    - Terminé depuis RELANCE_BILAN_JOURS jours sans bilan → date « Relance bilan »,
+      posée une seule fois.
+
+    Les mails partent des automatisations Notion qui écoutent ces propriétés. La base
+    étant petite, on la lit en entier plutôt que de filtrer côté API.
+    """
+    compteurs = {"en cours": 0, "terminé": 0, "relance": 0}
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        nom = titre_page(props)
+        statut = nom_select(props.get(DESTAFF_STATUT))
+        debut = date_debut(props.get(DESTAFF_DEBUT))
+        fin = date_debut(props.get(DESTAFF_FIN))
+
+        if statut == "Demande validée" and debut and debut <= aujourdhui:
+            ecrire_select(token, page["id"], DESTAFF_STATUT, "En cours")
+            statut = "En cours"
+            compteurs["en cours"] += 1
+            print(f"  → en cours : {nom}")
+
+        # Le même passage peut enchaîner les deux transitions, pour une demande
+        # validée après sa propre date de fin.
+        if statut == "En cours" and fin and fin < aujourdhui:
+            ecrire_select(token, page["id"], DESTAFF_STATUT, "Terminé")
+            compteurs["terminé"] += 1
+            print(f"  → terminé : {nom}")
+            continue
+
+        if statut != "Terminé" or texte_riche(props.get(DESTAFF_BILAN)):
+            continue
+        if date_debut(props.get(DESTAFF_RELANCE)) is not None:
+            continue
+        # « Terminé le » est posé par l'automatisation Notion du passage en Terminé ;
+        # à défaut, le lendemain de la date de fin en tient lieu.
+        termine_le = date_debut(props.get(DESTAFF_TERMINE_LE))
+        if termine_le is None and fin is not None:
+            termine_le = date.fromordinal(fin.toordinal() + 1)
+        if termine_le is None or (aujourdhui - termine_le).days < RELANCE_BILAN_JOURS:
+            continue
+        ecrire_date(token, page["id"], DESTAFF_RELANCE, aujourdhui)
+        compteurs["relance"] += 1
+        print(f"  → relance bilan : {nom}")
+    return compteurs
 
 
 def post_discord(webhook_url, content):
@@ -478,6 +563,14 @@ def main():
     else:
         rappels = 0
         print("! DISCORD_WEBHOOK_PREVALIDATION_URL absent : rappels de pré-validation désactivés.")
+
+    destaff_db = os.environ.get("NOTION_DESTAFF_DB_ID")
+    if destaff_db:
+        print("\nDemandes de destaff et d'intercontrat")
+        c = avancer_destaffs(token, destaff_db, aujourdhui)
+        print(f"  {c['en cours']} passée(s) en cours, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
+    else:
+        print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
 
     print(f"\nTerminé : {annonces} annonce(s), {relances} relance(s), {rappels} rappel(s) de pré-validation.")
 
