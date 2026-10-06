@@ -105,6 +105,12 @@ DESTAFF_TERMINE_LE = "Terminé le"
 DESTAFF_RELANCE = "Relance bilan"
 DESTAFF_JOURNAL = "Avancement"
 DESTAFF_MOTIF_REFUS = "Motif de refus"
+DESTAFF_SITUATION = "Situation"
+# Un intercontrat se raconte par tranches de 3 jours : à la fin de chaque tranche, le job
+# pose la tranche dans « Période de suivi », et une automatisation Notion envoie au
+# Buster le mail « Tracker mon avancement » avec ses dates.
+SUIVI_INTERCONTRAT_JOURS = 3
+DESTAFF_PERIODE_SUIVI = "Période de suivi"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -255,6 +261,44 @@ def ecrire_select(token, page_id, propriete, valeur):
     )
 
 
+def ecrire_periode(token, page_id, propriete, debut, fin):
+    if DRY_RUN:
+        print(f"    [dry-run] ecrirait « {propriete} » = {debut} → {fin}")
+        return
+    notion_request(
+        "PATCH",
+        f"/pages/{page_id}",
+        token,
+        {"properties": {propriete: {"date": {"start": debut.isoformat(), "end": fin.isoformat()}}}},
+    )
+
+
+def date_fin_plage(prop):
+    """Le `end` d'une propriété date (plage), en objet date, ou None."""
+    valeur = (prop or {}).get("date")
+    if not valeur or not valeur.get("end"):
+        return None
+    return date.fromisoformat(valeur["end"][:10])
+
+
+def derniere_tranche(debut, fin, aujourdhui, jours=SUIVI_INTERCONTRAT_JOURS):
+    """La dernière tranche de `jours` jours entièrement écoulée depuis `debut`, ou None.
+
+    Les tranches partent de la date de début : du 1er au 3, du 4 au 6… Une tranche
+    est due le lendemain de son dernier jour. Bornée par la date de fin si elle existe.
+    """
+    ecoulees = (aujourdhui - debut).days // jours
+    if ecoulees < 1:
+        return None
+    tranche_debut = date.fromordinal(debut.toordinal() + jours * (ecoulees - 1))
+    tranche_fin = date.fromordinal(tranche_debut.toordinal() + jours - 1)
+    if fin is not None and tranche_fin > fin:
+        tranche_fin = fin
+    if tranche_debut > tranche_fin:
+        return None
+    return tranche_debut, tranche_fin
+
+
 def titre_page(props):
     """Le titre d'une page, quel que soit le nom de sa propriété titre."""
     for prop in props.values():
@@ -303,14 +347,16 @@ def avancer_destaffs(token, database_id, aujourdhui):
     - Demande en No-go → Refusé, seulement une fois le Motif de refus rempli ;
     - Demande validée → En cours, dès la date de début ;
     - En cours → Terminé, le lendemain de la date de fin (un intercontrat sans date de
-      fin reste En cours : c'est le Buster qui le clôt à la main) ;
+      fin reste En cours : c'est le partner responsable qui le clôt à la main) ;
+    - Intercontrat En cours : à la fin de chaque tranche de SUIVI_INTERCONTRAT_JOURS
+      jours, la tranche est posée dans « Période de suivi » (rappel de suivi au Buster) ;
     - Terminé depuis RELANCE_BILAN_JOURS jours sans entrée d'avancement → date « Relance bilan »,
       posée une seule fois.
 
     Les mails partent des automatisations Notion qui écoutent ces propriétés. La base
     étant petite, on la lit en entier plutôt que de filtrer côté API.
     """
-    compteurs = {"refusé": 0, "en cours": 0, "terminé": 0, "relance": 0}
+    compteurs = {"refusé": 0, "en cours": 0, "terminé": 0, "suivi": 0, "relance": 0}
     for page in pages_de_base(token, database_id):
         props = page["properties"]
         nom = titre_page(props)
@@ -340,6 +386,14 @@ def avancer_destaffs(token, database_id, aujourdhui):
             ecrire_select(token, page["id"], DESTAFF_STATUT, "Terminé")
             compteurs["terminé"] += 1
             print(f"  → terminé : {nom}")
+            continue
+
+        if statut == "En cours" and debut and nom_select(props.get(DESTAFF_SITUATION)) == "Intercontrat":
+            tranche = derniere_tranche(debut, fin, aujourdhui)
+            if tranche and date_fin_plage(props.get(DESTAFF_PERIODE_SUIVI)) != tranche[1]:
+                ecrire_periode(token, page["id"], DESTAFF_PERIODE_SUIVI, *tranche)
+                compteurs["suivi"] += 1
+                print(f"  → rappel de suivi {tranche[0]} → {tranche[1]} : {nom}")
             continue
 
         # Le bilan vit dans la base de suivi d'avancement (formulaire « Tracker mon avancement ») : il suffit
@@ -621,7 +675,7 @@ def main():
     if destaff_db:
         print("\nDemandes de destaff et d'intercontrat")
         c = avancer_destaffs(token, destaff_db, aujourdhui)
-        print(f"  {c['refusé']} refusée(s), {c['en cours']} passée(s) en cours, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
+        print(f"  {c['refusé']} refusée(s), {c['en cours']} passée(s) en cours, {c['suivi']} rappel(s) de suivi, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
     else:
         print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
 
