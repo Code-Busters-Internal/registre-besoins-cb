@@ -100,7 +100,29 @@ s'appliquent qu'à un besoin en `Pré-validation`.
 |---|---|---|
 | `Go` | oui | `Cadrage métier` |
 | `Go` | non | `Publication` (on y cherche l'owner, relances comprises) |
-| `No-go` | — | `Rejeté` |
+| `No-go` | — | `Rejeté`, **par ce job**, et seulement si `Motif de rejet` est rempli |
+
+Le No-go est appliqué par le job (`appliquer_nogos`) et non par Notion : les automatisations
+Notion n'ont pas de condition « texte non vide », la règle « pas de No-go sans motif »
+(2026-10-06) n'y est donc pas exprimable. Le validateur reçoit un rappel Notion tant que le
+motif manque ; le passage en `Rejeté` déclenche le mail au déposant.
+
+## Destaff et intercontrat (`avancer_destaffs`)
+
+Actif seulement si `NOTION_DESTAFF_DB_ID` est défini. Le job ne fait qu'**écrire des
+propriétés** sur la base des demandes : les mails partent des automatisations Notion, qu'une
+écriture par l'API déclenche bien.
+
+| Situation | Condition | Écriture |
+|---|---|---|
+| Destaff `Demande`, `Décision = No-go` | `Motif de refus` rempli | `Statut = Refusé` |
+| `Demande validée` | début ≤ aujourd'hui | `Statut = En cours` |
+| `En cours` | fin < aujourd'hui | `Statut = Terminé` (le lendemain de la date de fin) |
+| Intercontrat `En cours` | une tranche de 3 jours depuis le début vient de s'écouler | `Période de suivi` = la tranche → mail « 🔄 Tracke ton intercontrat » |
+| `Terminé` | 7 j après `Terminé le`, aucune entrée liée dans `Avancement`, `Relance bilan` vide | `Relance bilan` = aujourd'hui → mail de relance |
+
+`Période de suivi` et `Relance bilan` font aussi office de mémoire d'idempotence. Le job ne
+tournant qu'en semaine, seule la dernière tranche écoulée est notifiée.
 
 L'automatisation `Go` calcule l'État par une formule :
 `if(and(not(empty(Page.Owner)), Page.Besoin de contributeurs == "Non"), "Cadrage métier", "Publication")`.
@@ -130,6 +152,7 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un besoin » |
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
+| `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
 
 `DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
 pré-validation sont désactivés.
