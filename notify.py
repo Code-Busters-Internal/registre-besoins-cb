@@ -91,6 +91,7 @@ PROP_PUBLICATION = "Date de publication"
 PROP_DERNIER_RAPPEL_PREVALIDATION = "Dernier rappel pré-validation"
 PROP_PREVALIDATION_DEPUIS = "En pré-validation depuis"
 PROP_OWNER = "Owner"
+PROP_MOTIF_REJET = "Motif de rejet"
 
 # Base « Demandes de destaff et d'intercontrat ». Le job ne fait qu'avancer le Statut
 # selon les dates et poser la date de relance : ce sont des automatisations Notion,
@@ -259,6 +260,40 @@ def titre_page(props):
         if prop.get("type") == "title":
             return texte_titre(prop) or "(sans titre)"
     return "(sans titre)"
+
+
+def appliquer_nogos(token, database_id):
+    """Passe en Rejeté les besoins en No-go dont le Motif de rejet est rempli.
+
+    Un No-go sans motif n'est jamais appliqué : le déposant doit savoir pourquoi pour
+    pouvoir corriger et redéposer. Notion ne sait pas tester un champ texte vide dans
+    une automatisation, d'où ce job ; l'automatisation Notion du No-go se contente de
+    prévenir le validateur que le motif est obligatoire. Le passage en Rejeté
+    déclenche ensuite l'automatisation Notion qui envoie le motif au déposant.
+    """
+    besoins = pages_de_base(
+        token,
+        database_id,
+        {
+            "filter": {
+                "and": [
+                    {"property": "Décision", "select": {"equals": "No-go"}},
+                    {"property": "État", "select": {"equals": "Pré-validation"}},
+                ]
+            }
+        },
+    )
+    rejetes = 0
+    for page in besoins:
+        props = page["properties"]
+        nom = texte_titre(props.get("Nom")) or "(sans titre)"
+        if not texte_riche(props.get(PROP_MOTIF_REJET)):
+            print(f"  · No-go sans motif, laissé en Pré-validation : {nom}")
+            continue
+        ecrire_select(token, page["id"], "État", "Rejeté")
+        rejetes += 1
+        print(f"  → rejeté : {nom}")
+    return rejetes
 
 
 def avancer_destaffs(token, database_id, aujourdhui):
@@ -563,6 +598,10 @@ def main():
     else:
         rappels = 0
         print("! DISCORD_WEBHOOK_PREVALIDATION_URL absent : rappels de pré-validation désactivés.")
+
+    print("\nNo-go à appliquer")
+    nogos = appliquer_nogos(token, database_id)
+    print(f"  {nogos} besoin(s) passé(s) en Rejeté")
 
     destaff_db = os.environ.get("NOTION_DESTAFF_DB_ID")
     if destaff_db:
