@@ -104,6 +104,7 @@ DESTAFF_FIN = "Date de fin"
 DESTAFF_TERMINE_LE = "Terminé le"
 DESTAFF_RELANCE = "Relance bilan"
 DESTAFF_BILAN = "Ce que j'ai fait"
+DESTAFF_MOTIF_REFUS = "Motif de refus"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
@@ -299,6 +300,7 @@ def appliquer_nogos(token, database_id):
 def avancer_destaffs(token, database_id, aujourdhui):
     """Fait avancer les demandes de destaff et d'intercontrat selon leurs dates.
 
+    - Demande en No-go → Refusé, seulement une fois le Motif de refus rempli ;
     - Demande validée → En cours, dès la date de début ;
     - En cours → Terminé, le lendemain de la date de fin (un intercontrat sans date de
       fin reste En cours : c'est le Buster qui le clôt à la main) ;
@@ -308,13 +310,23 @@ def avancer_destaffs(token, database_id, aujourdhui):
     Les mails partent des automatisations Notion qui écoutent ces propriétés. La base
     étant petite, on la lit en entier plutôt que de filtrer côté API.
     """
-    compteurs = {"en cours": 0, "terminé": 0, "relance": 0}
+    compteurs = {"refusé": 0, "en cours": 0, "terminé": 0, "relance": 0}
     for page in pages_de_base(token, database_id):
         props = page["properties"]
         nom = titre_page(props)
         statut = nom_select(props.get(DESTAFF_STATUT))
         debut = date_debut(props.get(DESTAFF_DEBUT))
         fin = date_debut(props.get(DESTAFF_FIN))
+
+        # Même règle que pour les besoins : un No-go n'est appliqué qu'avec son motif.
+        if statut == "Demande" and nom_select(props.get("Décision")) == "No-go":
+            if texte_riche(props.get(DESTAFF_MOTIF_REFUS)):
+                ecrire_select(token, page["id"], DESTAFF_STATUT, "Refusé")
+                compteurs["refusé"] += 1
+                print(f"  → refusé : {nom}")
+            else:
+                print(f"  · No-go sans motif, laissé en Demande : {nom}")
+            continue
 
         if statut == "Demande validée" and debut and debut <= aujourdhui:
             ecrire_select(token, page["id"], DESTAFF_STATUT, "En cours")
@@ -607,7 +619,7 @@ def main():
     if destaff_db:
         print("\nDemandes de destaff et d'intercontrat")
         c = avancer_destaffs(token, destaff_db, aujourdhui)
-        print(f"  {c['en cours']} passée(s) en cours, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
+        print(f"  {c['refusé']} refusée(s), {c['en cours']} passée(s) en cours, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
     else:
         print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
 
