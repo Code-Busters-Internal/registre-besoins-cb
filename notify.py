@@ -103,7 +103,7 @@ DESTAFF_DEBUT = "Date de début"
 DESTAFF_FIN = "Date de fin"
 DESTAFF_TERMINE_LE = "Terminé le"
 DESTAFF_RELANCE = "Relance bilan"
-DESTAFF_BILAN = "Ce que j'ai fait"
+DESTAFF_JOURNAL = "Avancement"
 DESTAFF_MOTIF_REFUS = "Motif de refus"
 
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
@@ -304,7 +304,7 @@ def avancer_destaffs(token, database_id, aujourdhui):
     - Demande validée → En cours, dès la date de début ;
     - En cours → Terminé, le lendemain de la date de fin (un intercontrat sans date de
       fin reste En cours : c'est le Buster qui le clôt à la main) ;
-    - Terminé depuis RELANCE_BILAN_JOURS jours sans bilan → date « Relance bilan »,
+    - Terminé depuis RELANCE_BILAN_JOURS jours sans entrée d'avancement → date « Relance bilan »,
       posée une seule fois.
 
     Les mails partent des automatisations Notion qui écoutent ces propriétés. La base
@@ -342,7 +342,9 @@ def avancer_destaffs(token, database_id, aujourdhui):
             print(f"  → terminé : {nom}")
             continue
 
-        if statut != "Terminé" or texte_riche(props.get(DESTAFF_BILAN)):
+        # Le bilan vit dans la base de suivi d'avancement (formulaire « Tracker mon avancement ») : il suffit
+        # qu'une entrée soit reliée à la demande.
+        if statut != "Terminé" or a_une_relation(props.get(DESTAFF_JOURNAL)):
             continue
         if date_debut(props.get(DESTAFF_RELANCE)) is not None:
             continue
