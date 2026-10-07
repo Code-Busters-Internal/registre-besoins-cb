@@ -6,8 +6,11 @@ Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
 **Pré-validation**.
 
 Le job **interroge Notion**, il n'expose aucune URL et n'attend aucun appel entrant.
-Il tourne toutes les heures en heures ouvrées via GitHub Actions — GitHub en saute
-une partie quand il est chargé, le job étant idempotent ça ne fait que retarder un envoi.
+Il est planifié toutes les 15 minutes en heures ouvrées via GitHub Actions. GitHub en
+saute une large part quand il est chargé (au pas horaire, seuls ~2 passages par jour
+tournaient réellement, à des heures irrégulières — constaté le 2026-10-07) ; le job étant
+idempotent, ça ne fait que retarder un envoi. Pour forcer un passage : Actions →
+*Run workflow*, `dry_run` décoché.
 
 ## Pourquoi un job planifié plutôt qu'un webhook Notion
 
@@ -19,7 +22,7 @@ un service intermédiaire pour traduire le JSON — un endpoint public de plus �
 Ce job supprime ce besoin : il lit et il poste.
 
 Contrepartie assumée : l'annonce n'est pas instantanée, elle part au prochain passage du
-cron (2 h au pire). Pour un registre qui reçoit quelques besoins par mois, c'est sans
+cron (souvent moins d'une heure, mais sans garantie). Pour un registre qui reçoit quelques besoins par mois, c'est sans
 conséquence.
 
 ## Idempotence
