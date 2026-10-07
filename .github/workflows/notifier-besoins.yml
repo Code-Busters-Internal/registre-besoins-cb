@@ -2,13 +2,13 @@ name: Notifier les besoins internes
 
 on:
   schedule:
-    # Toutes les 15 minutes de 06:07 à 17:52 UTC, du lundi au vendredi
-    # (soit 8h–19h à Paris en été, 7h–18h en hiver).
+    # Toutes les 2 heures de 07:07 à 17:07 UTC, du lundi au vendredi
+    # (soit 9h–19h à Paris en été, 8h–18h en hiver), en évitant l'heure pile.
     # GitHub abandonne une bonne part des exécutions planifiées quand il est chargé :
-    # avec un cron horaire à :23, seules ~2 tournaient par jour, à des heures
-    # irrégulières (constaté le 2026-10-07 : 15h25 et 21h36 la veille, rien à 8h23).
-    # D'où le pas de 15 min, en évitant l'heure pile — sans risque, le job est idempotent.
-    - cron: "7,22,37,52 6-17 * * 1-5"
+    # depuis le 27/08, ~2 passages par jour seulement, que le cron soit à 2 h, 1 h
+    # ou 15 min (aucun passage le 2026-10-07 au pas de 15 min). Le pas importe donc
+    # peu ; retour à 2 h en attendant de décider d'un déclenchement externe.
+    - cron: "7 7-17/2 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:

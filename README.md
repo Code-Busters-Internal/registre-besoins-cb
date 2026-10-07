@@ -6,9 +6,10 @@ Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
 **Pré-validation**.
 
 Le job **interroge Notion**, il n'expose aucune URL et n'attend aucun appel entrant.
-Il est planifié toutes les 15 minutes en heures ouvrées via GitHub Actions. GitHub en
-saute une large part quand il est chargé (au pas horaire, seuls ~2 passages par jour
-tournaient réellement, à des heures irrégulières — constaté le 2026-10-07) ; le job étant
+Il est planifié toutes les 2 heures en heures ouvrées via GitHub Actions. GitHub en
+saute une large part quand il est chargé : depuis le 2026-08-27, ~2 passages par jour
+seulement, à des heures irrégulières, que le cron soit à 2 h, 1 h ou 15 min (constaté le
+2026-10-07). Le job étant
 idempotent, ça ne fait que retarder un envoi. Pour forcer un passage : Actions →
 *Run workflow*, `dry_run` décoché.
 
