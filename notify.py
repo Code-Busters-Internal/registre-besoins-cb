@@ -112,6 +112,25 @@ DESTAFF_SITUATION = "Situation"
 SUIVI_INTERCONTRAT_JOURS = 3
 DESTAFF_PERIODE_SUIVI = "Période de suivi"
 
+# Owner d'un besoin. `Owner` est une relation vers l'annuaire, qu'une automatisation Notion
+# ne sait pas utiliser comme destinataire : le job recopie le compte Notion de l'owner
+# (propriété `Person` de sa fiche annuaire) dans `Owner (compte)`. Dès qu'un owner est
+# choisi par le validateur, le besoin quitte Publication pour Cadrage métier ; tant que
+# le lien `Suivi` est vide, le job pose `Suivi demandé le`, ce qui déclenche le mail
+# Notion demandant à l'owner de créer et déclarer sa page de suivi (relance à 7 jours).
+PROP_OWNER_COMPTE = "Owner (compte)"
+PROP_SUIVI = "Suivi"
+PROP_SUIVI_DEMANDE = "Suivi demandé le"
+ANNUAIRE_PERSONNE = "Person"
+SUIVI_RELANCE_JOURS = 7
+ETATS_SUIVI_ATTENDU = {"Cadrage métier", "Cadrage technique", "En cours d'implémentation"}
+# Base « Pages de suivi des besoins », alimentée par le formulaire « Déclarer la page de
+# suivi » : un owner n'a qu'un accès en lecture à la base des besoins, il déclare donc
+# son lien ici et le job le recopie dans la colonne `Suivi` du besoin.
+DECLARATION_BESOIN = "Besoin"
+DECLARATION_LIEN = "Lien"
+DECLARATION_RECOPIE = "Recopié"
+
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 
@@ -339,6 +358,90 @@ def appliquer_nogos(token, database_id):
         rejetes += 1
         print(f"  → rejeté : {nom}")
     return rejetes
+
+
+def ecrire_proprietes(token, page_id, proprietes, description):
+    if DRY_RUN:
+        print(f"    [dry-run] ecrirait {description}")
+        return
+    notion_request("PATCH", f"/pages/{page_id}", token, {"properties": proprietes})
+
+
+def recopier_declarations_suivi(token, database_id):
+    """Recopie dans `Suivi` du besoin les liens déclarés par les owners via le formulaire."""
+    declarations = pages_de_base(
+        token, database_id, {"filter": {"property": DECLARATION_RECOPIE, "checkbox": {"equals": False}}}
+    )
+    recopies = 0
+    for decl in declarations:
+        props = decl["properties"]
+        besoins = (props.get(DECLARATION_BESOIN) or {}).get("relation") or []
+        lien = (props.get(DECLARATION_LIEN) or {}).get("url")
+        if not besoins or not lien:
+            print("  · déclaration incomplète ignorée")
+            continue
+        ecrire_proprietes(token, besoins[0]["id"], {PROP_SUIVI: {"url": lien}}, f"« {PROP_SUIVI} » = {lien}")
+        cocher(token, decl["id"], DECLARATION_RECOPIE)
+        recopies += 1
+        print(f"  → lien de suivi recopié : {lien}")
+    return recopies
+
+
+def compte_owner(token, owner_page_id, cache):
+    """Le compte Notion (id utilisateur) de l'owner, lu dans sa fiche annuaire."""
+    if owner_page_id not in cache:
+        fiche = notion_request("GET", f"/pages/{owner_page_id}", token)
+        personnes = (fiche["properties"].get(ANNUAIRE_PERSONNE) or {}).get("people") or []
+        cache[owner_page_id] = personnes[0]["id"] if personnes else None
+    return cache[owner_page_id]
+
+
+def suivre_owners(token, database_id, aujourdhui):
+    """Pour chaque besoin avec un Owner : compte de l'owner, Cadrage métier, demande de suivi.
+
+    - recopie le compte Notion de l'owner dans `Owner (compte)` (destinataire des mails) ;
+    - un besoin encore en Publication passe en Cadrage métier : c'est le validateur qui
+      choisit l'owner, et ce choix lance le cadrage ;
+    - en Cadrage métier, Cadrage technique ou En cours d'implémentation, tant que `Suivi`
+      est vide : pose `Suivi demandé le` (au plus tous les SUIVI_RELANCE_JOURS jours), ce
+      qui déclenche le mail Notion à l'owner.
+    """
+    besoins = pages_de_base(
+        token, database_id, {"filter": {"property": PROP_OWNER, "relation": {"is_not_empty": True}}}
+    )
+    cache = {}
+    compteurs = {"compte": 0, "cadrage": 0, "demande": 0}
+    for page in besoins:
+        props = page["properties"]
+        nom = texte_titre(props.get("Nom")) or "(sans titre)"
+        etat = nom_select(props.get("État"))
+        owner_id = props[PROP_OWNER]["relation"][0]["id"]
+
+        compte = compte_owner(token, owner_id, cache)
+        actuel = [p["id"] for p in (props.get(PROP_OWNER_COMPTE) or {}).get("people") or []]
+        if compte and actuel != [compte]:
+            ecrire_proprietes(
+                token, page["id"], {PROP_OWNER_COMPTE: {"people": [{"id": compte}]}}, f"« {PROP_OWNER_COMPTE} »"
+            )
+            compteurs["compte"] += 1
+            print(f"  → compte de l'owner renseigné : {nom}")
+        elif not compte:
+            print(f"  ! fiche annuaire sans compte Notion (« {ANNUAIRE_PERSONNE} » vide) : {nom}")
+
+        if etat == "Publication":
+            ecrire_select(token, page["id"], "État", "Cadrage métier")
+            etat = "Cadrage métier"
+            compteurs["cadrage"] += 1
+            print(f"  → owner choisi, passage en Cadrage métier : {nom}")
+
+        if etat not in ETATS_SUIVI_ATTENDU or (props.get(PROP_SUIVI) or {}).get("url") or not compte:
+            continue
+        if not envoi_du(props, PROP_SUIVI_DEMANDE, SUIVI_RELANCE_JOURS, aujourdhui):
+            continue
+        ecrire_date(token, page["id"], PROP_SUIVI_DEMANDE, aujourdhui)
+        compteurs["demande"] += 1
+        print(f"  → page de suivi demandée à l'owner : {nom}")
+    return compteurs
 
 
 def avancer_destaffs(token, database_id, aujourdhui):
@@ -648,6 +751,16 @@ def main():
     else:
         index = None
         print("! NOTION_CANDIDATURES_DB_ID absent : les relances ne citeront pas le nombre de candidatures.")
+
+    # Avant les annonces : un besoin dont l'owner vient d'être choisi quitte Publication.
+    suivi_db = os.environ.get("NOTION_SUIVI_BESOINS_DB_ID")
+    print("Owners et pages de suivi")
+    if suivi_db:
+        print(f"  {recopier_declarations_suivi(token, suivi_db)} lien(s) de suivi recopié(s)")
+    else:
+        print("  ! NOTION_SUIVI_BESOINS_DB_ID absent : liens déclarés par les owners non recopiés.")
+    o = suivre_owners(token, database_id, aujourdhui)
+    print(f"  {o['compte']} compte(s) d'owner renseigné(s), {o['cadrage']} passage(s) en Cadrage métier, {o['demande']} demande(s) de page de suivi\n")
 
     pages = besoins_dans_etat(token, database_id, "Publication")
     print(f"{len(pages)} besoin(s) en État = Publication")

@@ -110,6 +110,25 @@ Notion n'ont pas de condition « texte non vide », la règle « pas de No-go sa
 (2026-10-06) n'y est donc pas exprimable. Le validateur reçoit un rappel Notion tant que le
 motif manque ; le passage en `Rejeté` déclenche le mail au déposant.
 
+## Owner et page de suivi (`suivre_owners`, `recopier_declarations_suivi`)
+
+C'est le **validateur** qui choisit l'`Owner` d'un besoin ; l'owner choisit ensuite les
+contributeurs. `Owner` est une relation vers l'annuaire, inutilisable comme destinataire
+d'une automatisation Notion : le job recopie le compte Notion de l'owner (propriété
+`Person` de sa fiche annuaire) dans `Owner (compte)`.
+
+| Condition | Écriture |
+|---|---|
+| `Owner` renseigné, `Owner (compte)` différent | `Owner (compte)` = compte de l'owner |
+| `Owner` renseigné et `État = Publication` | `État = Cadrage métier` (le Go le fait déjà directement si l'owner est choisi avant) |
+| Cadrage métier, Cadrage technique ou En cours d'implémentation, `Suivi` vide, dernière demande ≥ 7 j | `Suivi demandé le` = aujourd'hui → mail Notion à l'owner |
+| Ligne non recopiée dans « Pages de suivi des besoins » | `Suivi` du besoin = lien déclaré, ligne cochée `Recopié` |
+
+Un owner n'a qu'un accès en lecture à la base des besoins : il déclare son lien avec le
+formulaire « Déclarer la page de suivi de mon besoin », et le job le recopie. Cette étape
+tourne **avant** les annonces Discord, pour qu'un besoin qui vient de recevoir son owner
+quitte Publication sans être annoncé.
+
 ## Destaff et intercontrat (`avancer_destaffs`)
 
 Actif seulement si `NOTION_DESTAFF_DB_ID` est défini. Le job ne fait qu'**écrire des
@@ -156,6 +175,7 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
 | `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
+| `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des besoins » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
 
 `DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
 pré-validation sont désactivés.
