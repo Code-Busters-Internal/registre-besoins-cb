@@ -116,6 +116,12 @@ DESTAFF_PERIODE_SUIVI = "Période de suivi"
 # fiche dont `Person` est le créateur de la demande et la pose dans `Fiche Buster`.
 DESTAFF_FICHE = "Fiche Buster"
 ANNUAIRE_DB_ID = "2a2b91c4eed181178483d7a728caf8b6"  # « BDD Annuaire Busters »
+# « 📊 Jours par Buster » : une page par Buster, qui additionne ses demandes par rollup.
+# Une vue de la base des demandes ne sait pas agréger en une ligne par Buster, d'où cette
+# base. Le job y crée la page du Buster au besoin et y relie chacune de ses demandes.
+SYNTHESE_DB_ID = "fa57ac515bd047368e5812114d033ca0"
+DESTAFF_SYNTHESE = "Synthèse Buster"
+SYNTHESE_FICHE = "Fiche Buster"
 
 # Owner d'un besoin. `Owner` est une relation vers l'annuaire, qu'une automatisation Notion
 # ne sait pas utiliser comme destinataire : le job recopie le compte Notion de l'owner
@@ -449,31 +455,67 @@ def suivre_owners(token, database_id, aujourdhui):
     return compteurs
 
 
+def fiche_du_createur(token, createur, cache):
+    """L'id de la fiche annuaire dont `Person` est ce compte Notion, ou None."""
+    if createur not in cache:
+        fiches = pages_de_base(
+            token, ANNUAIRE_DB_ID, {"filter": {"property": ANNUAIRE_PERSONNE, "people": {"contains": createur}}}
+        )
+        cache[createur] = fiches[0] if fiches else None
+    return cache[createur]
+
+
+def page_de_synthese(token, fiche, cache):
+    """L'id de la page de « Jours par Buster » liée à cette fiche annuaire, créée au besoin."""
+    if fiche["id"] not in cache:
+        pages = pages_de_base(
+            token, SYNTHESE_DB_ID, {"filter": {"property": SYNTHESE_FICHE, "relation": {"contains": fiche["id"]}}}
+        )
+        if pages:
+            cache[fiche["id"]] = pages[0]["id"]
+        else:
+            nom = texte_titre(fiche["properties"].get("Nom complet")) or "(sans nom)"
+            if DRY_RUN:
+                print(f"    [dry-run] creerait la ligne de synthese de {nom}")
+                cache[fiche["id"]] = None
+            else:
+                creee = notion_request("POST", "/pages", token, {
+                    "parent": {"database_id": SYNTHESE_DB_ID},
+                    "properties": {
+                        "Buster": {"title": [{"text": {"content": nom}}]},
+                        SYNTHESE_FICHE: {"relation": [{"id": fiche["id"]}]},
+                    },
+                })
+                cache[fiche["id"]] = creee["id"]
+                print(f"  → ligne de synthèse créée : {nom}")
+    return cache[fiche["id"]]
+
+
 def relier_fiches_buster(token, database_id):
-    """Pose dans `Fiche Buster` la fiche annuaire du créateur de chaque demande qui n'en a pas."""
-    demandes = pages_de_base(
-        token, database_id, {"filter": {"property": DESTAFF_FICHE, "relation": {"is_empty": True}}}
-    )
-    cache = {}
+    """Relie chaque demande à la fiche annuaire de son créateur et à sa ligne de « Jours par Buster »."""
+    fiches, syntheses = {}, {}
     reliees = 0
-    for page in demandes:
-        nom = titre_page(page["properties"])
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        nom = titre_page(props)
         createur = (page.get("created_by") or {}).get("id")
         if not createur:
             continue
-        if createur not in cache:
-            fiches = pages_de_base(
-                token, ANNUAIRE_DB_ID, {"filter": {"property": ANNUAIRE_PERSONNE, "people": {"contains": createur}}}
-            )
-            cache[createur] = fiches[0]["id"] if fiches else None
-        if not cache[createur]:
+        fiche = fiche_du_createur(token, createur, fiches)
+        if not fiche:
             print(f"  ! aucune fiche annuaire pour le créateur de : {nom}")
             continue
-        ecrire_proprietes(
-            token, page["id"], {DESTAFF_FICHE: {"relation": [{"id": cache[createur]}]}}, f"« {DESTAFF_FICHE} »"
-        )
-        reliees += 1
-        print(f"  → fiche annuaire reliée : {nom}")
+        a_ecrire = {}
+        if not a_une_relation(props.get(DESTAFF_FICHE)):
+            a_ecrire[DESTAFF_FICHE] = {"relation": [{"id": fiche["id"]}]}
+        if not a_une_relation(props.get(DESTAFF_SYNTHESE)):
+            synthese = page_de_synthese(token, fiche, syntheses)
+            if synthese:
+                a_ecrire[DESTAFF_SYNTHESE] = {"relation": [{"id": synthese}]}
+        if a_ecrire:
+            ecrire_proprietes(token, page["id"], a_ecrire, " et ".join(f"« {k} »" for k in a_ecrire))
+            reliees += 1
+            print(f"  → demande reliée au Buster : {nom}")
     return reliees
 
 
@@ -822,7 +864,7 @@ def main():
         print("\nDemandes de destaff et d'intercontrat")
         c = avancer_destaffs(token, destaff_db, aujourdhui)
         print(f"  {c['refusé']} refusée(s), {c['en cours']} passée(s) en cours, {c['suivi']} rappel(s) de suivi, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
-        print(f"  {relier_fiches_buster(token, destaff_db)} fiche(s) annuaire reliée(s)")
+        print(f"  {relier_fiches_buster(token, destaff_db)} demande(s) reliée(s) à leur Buster")
     else:
         print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
 

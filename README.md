@@ -143,7 +143,7 @@ propriétés** sur la base des demandes : les mails partent des automatisations 
 | `En cours` | fin < aujourd'hui | `Statut = Terminé` (le lendemain de la date de fin) |
 | Intercontrat `En cours` | une tranche de 3 jours depuis le début vient de s'écouler | `Période de suivi` = la tranche → mail « 🔄 Tracke ton intercontrat » |
 | `Terminé` | 7 j après `Terminé le`, aucune entrée liée dans `Avancement`, `Relance bilan` vide | `Relance bilan` = aujourd'hui → mail de relance |
-| toute demande | `Fiche Buster` vide | `Fiche Buster` = la fiche de « BDD Annuaire Busters » dont `Person` est le créateur (sert au grade et au quota de destaff) |
+| toute demande | `Fiche Buster` ou `Synthèse Buster` vide | `Fiche Buster` = la fiche de « BDD Annuaire Busters » dont `Person` est le créateur ; `Synthèse Buster` = sa ligne de « 📊 Jours par Buster », créée au besoin (jours et % du quota de destaff par Buster) |
 
 `Période de suivi` et `Relance bilan` font aussi office de mémoire d'idempotence. Le job ne
 tournant qu'en semaine, seule la dernière tranche écoulée est notifiée.
