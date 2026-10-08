@@ -61,16 +61,20 @@ STATUTS_IGNORES = {"Brouillon", "Décliné"}
 # serait sous la ligne de flottaison. La procédure voyage donc avec le lien.
 PROCEDURE = (
     "Clique sur **Candidater** sur la page, puis écris ta **Motivation** : "
-    "c'est elle qui valide ta candidature et prévient le déposant. "
+    "c'est elle qui valide ta candidature et prévient la personne qui a proposé le projet. "
     "Sans motivation, elle reste un brouillon que personne ne voit."
 )
 
-# « Objectif » a été renommé « Le besoin en une phrase » le 2026-09-08. Le job tournant
-# depuis GitHub Actions, le code déployé et le schéma Notion ne changent jamais au même
-# instant : on lit donc les deux noms, ce qui rend la migration insensible à l'ordre.
-# L'ancien nom pourra être retiré une fois le renommage confirmé en prod.
-PROP_PHRASE = "Le besoin en une phrase"
-PROP_PHRASE_AVANT_20260908 = "Objectif"
+# « Le besoin en une phrase » a été renommé « Le projet en une phrase » le 2026-10-08,
+# quand le registre est devenu « Contribuer à CB ». Le job tournant depuis GitHub Actions,
+# le code déployé et le schéma Notion ne changent jamais au même instant : on lit donc
+# les deux noms, ce qui rend la migration insensible à l'ordre. L'ancien nom pourra être
+# retiré une fois le renommage confirmé en prod.
+PROP_PHRASE = "Le projet en une phrase"
+PROP_PHRASE_AVANT_20261008 = "Le besoin en une phrase"
+# Même migration pour la relation des candidatures et des déclarations de suivi.
+RELATION_PROJET = "Projet"
+RELATION_PROJET_AVANT_20261008 = "Besoin"
 
 # Ajouté le 2026-09-08 : tout besoin publié ne cherche pas forcément des contributeurs.
 # On ne se tait QUE sur un « Non » explicite — une valeur vide garde le comportement
@@ -138,7 +142,6 @@ ETATS_SUIVI_ATTENDU = {"Cadrage métier", "Cadrage technique", "En cours d'impl�
 # Base « Pages de suivi des besoins », alimentée par le formulaire « Déclarer la page de
 # suivi » : un owner n'a qu'un accès en lecture à la base des besoins, il déclare donc
 # son lien ici et le job le recopie dans la colonne `Suivi` du besoin.
-DECLARATION_BESOIN = "Besoin"
 DECLARATION_LIEN = "Lien"
 DECLARATION_RECOPIE = "Recopié"
 
@@ -214,10 +217,16 @@ def index_candidatures(token, database_id):
         props = page["properties"]
         if nom_select(props.get("Statut")) in STATUTS_IGNORES:
             continue
-        for lien in props.get("Besoin", {}).get("relation", []):
+        for lien in relation_projet(props):
             cle = sans_tirets(lien.get("id"))
             index[cle] = index.get(cle, 0) + 1
     return index
+
+
+def relation_projet(props):
+    """Les pages liées par la relation vers la base des projets, sous son nom actuel ou ancien."""
+    prop = props.get(RELATION_PROJET) or props.get(RELATION_PROJET_AVANT_20261008) or {}
+    return prop.get("relation") or []
 
 
 def texte_titre(prop):
@@ -386,7 +395,7 @@ def recopier_declarations_suivi(token, database_id):
     recopies = 0
     for decl in declarations:
         props = decl["properties"]
-        besoins = (props.get(DECLARATION_BESOIN) or {}).get("relation") or []
+        besoins = relation_projet(props)
         lien = (props.get(DECLARATION_LIEN) or {}).get("url")
         if not besoins or not lien:
             print("  · déclaration incomplète ignorée")
@@ -629,20 +638,20 @@ def messages_rappel_prevalidation(besoins):
     `besoins` : liste de (nom, catégorie, déposant, âge en jours, url).
     """
     entete = (
-        f"⏳ **Besoins en Pré-validation depuis plus de {RAPPEL_PREVALIDATION_JOURS} jours** "
+        f"⏳ **Projets en Pré-validation depuis plus de {RAPPEL_PREVALIDATION_JOURS} jours** "
         "— personne n'a encore statué :"
     )
     pied = (
-        "👉 Chaque demande doit être **examinée avec son déposant** par le responsable de "
-        "sa catégorie (prévenu par e-mail au dépôt), qui renseigne ensuite le champ "
-        "**Décision** : `Go` la passe en `Publication` pour lui trouver un owner — ou "
+        "👉 Chaque projet doit être **examiné avec la personne qui l'a proposé** par le "
+        "responsable de sa catégorie (prévenu par e-mail au dépôt), qui renseigne ensuite le champ "
+        "**Décision** : `Go` le passe en `Publication` pour lui trouver un owner — ou "
         "directement en `Cadrage métier` si l'**Owner** est déjà renseigné et « Besoin de "
-        "contributeurs » à `Non` ; `No-go` la passe en `Rejeté`."
+        "contributeurs » à `Non` ; `No-go` le passe en `Rejeté`."
     )
     lignes = []
     for nom, categorie, deposant, age, url in besoins:
         details = " · ".join(
-            x for x in (categorie, f"déposé par {deposant}" if deposant else "", f"il y a {age} j") if x
+            x for x in (categorie, f"proposé par {deposant}" if deposant else "", f"il y a {age} j") if x
         )
         # Lien masqué et chevrons : sans eux, Discord déplie un aperçu par besoin listé.
         lignes.append(f"• **{nom}** — {details} → [ouvrir](<{url}>)")
@@ -721,16 +730,16 @@ def message_annonce(nom, phrase, categorie, url, cherche_contributeurs=True):
     est la raison d'être du registre — mais on retire l'appel à candidater, qui serait
     une sollicitation pour rien.
     """
-    lignes = [f"📥 **Nouveau besoin interne publié — {nom}**"]
+    lignes = [f"📥 **Nouveau projet publié — {nom}**"]
     if phrase:
         lignes.append(f"> {phrase}")
     if categorie:
         lignes.append(f"*Catégorie : {categorie}*")
     if cherche_contributeurs:
-        lignes.append(f"Ça t'intéresse ? → {url}")
+        lignes.append(f"Envie d'avoir un impact sur CB ? → {url}")
         lignes.append(PROCEDURE)
     else:
-        lignes.append(f"Pour info, ce besoin ne cherche pas de contributeur → {url}")
+        lignes.append(f"Pour info, ce projet ne cherche pas de contributeur → {url}")
     return "\n".join(lignes)
 
 
@@ -745,7 +754,7 @@ def message_relance(nom, phrase, age, url, candidatures):
             f"Publié il y a {age} jours : {candidatures} candidature(s), mais toujours "
             "pas d'owner désigné."
         )
-    lignes = [f"⏰ **Toujours personne sur ce besoin — {nom}**", etat]
+    lignes = [f"⏰ **Toujours personne sur ce projet — {nom}**", etat]
     if phrase:
         lignes.append(f"> {phrase}")
     lignes.append(f"Un volontaire ? → {url}")
@@ -766,7 +775,7 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     nom = texte_titre(props.get("Nom")) or "(sans titre)"
     url = page["url"]
     phrase = texte_riche(props.get(PROP_PHRASE)) or texte_riche(
-        props.get(PROP_PHRASE_AVANT_20260908)
+        props.get(PROP_PHRASE_AVANT_20261008)
     )
     cherche_contributeurs = nom_select(props.get(PROP_CONTRIBUTEURS)) != "Non"
 
