@@ -1,5 +1,7 @@
 # Notifier — Registre des besoins internes CB
 
+> **2026-10-08** : le registre s'appelle désormais **« 🤝 Contribuer à CB »** et un « besoin » devient un **« projet »** (bases, colonnes, formulaires, mails, messages Discord). Le code lit les colonnes renommées (`Le projet en une phrase`, relation `Projet`) avec repli sur l'ancien nom, et le titre des pages quel que soit le nom de la colonne titre (`Titre du projet`). Le reste de ce README garde le mot « besoin » là où il décrit l'historique.
+
 Poste sur le channel Discord `#besoins-internes` les besoins internes qui passent en
 **Publication**, puis les relance tous les 10 jours tant qu'ils n'ont pas d'**Owner**.
 Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
@@ -123,10 +125,11 @@ d'une automatisation Notion : le job recopie le compte Notion de l'owner (propri
 | `Owner` renseigné, `Owner (compte)` différent | `Owner (compte)` = compte de l'owner |
 | `Owner` renseigné et `État = Publication` | `État = Cadrage métier` (le Go le fait déjà directement si l'owner est choisi avant) |
 | Cadrage métier, Cadrage technique ou En cours d'implémentation, `Suivi` vide, dernière demande ≥ 7 j | `Suivi demandé le` = aujourd'hui → mail Notion à l'owner |
-| Ligne non recopiée dans « Pages de suivi des besoins » | `Suivi` du besoin = lien déclaré, ligne cochée `Recopié` |
+| Ligne non recopiée dans « Pages de suivi des projets » | `Suivi` du projet = lien déclaré, ligne cochée `Recopié` |
+| `Contributeurs (comptes)` différent des comptes des fiches `Contributeurs` | `Contributeurs (comptes)` = ces comptes (sert la vue « 🌟 Mon impact », qui filtre sur « moi ») |
 
 Un owner n'a qu'un accès en lecture à la base des besoins : il déclare son lien avec le
-formulaire « Déclarer la page de suivi de mon besoin », et le job le recopie. Cette étape
+formulaire « Déclarer la page de suivi de mon projet », et le job le recopie. Cette étape
 tourne **avant** les annonces Discord, pour qu'un besoin qui vient de recevoir son owner
 quitte Publication sans être annoncé.
 
@@ -172,12 +175,12 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | Secret | Où le trouver |
 |---|---|
 | `NOTION_TOKEN` | intégration interne Notion, voir ci-dessous |
-| `NOTION_DATABASE_ID` | id de « Base des besoins internes » dans son URL |
-| `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un besoin » |
+| `NOTION_DATABASE_ID` | id de « Base des projets » (ex-« Base des besoins internes ») dans son URL |
+| `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un projet » |
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
 | `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
-| `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des besoins » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
+| `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des projets » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
 
 `DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
 pré-validation sont désactivés.
