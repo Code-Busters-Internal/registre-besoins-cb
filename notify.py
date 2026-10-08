@@ -116,7 +116,7 @@ DESTAFF_PERIODE_SUIVI = "Période de suivi"
 # fiche dont `Person` est le créateur de la demande et la pose dans `Fiche Buster`.
 DESTAFF_FICHE = "Fiche Buster"
 ANNUAIRE_DB_ID = "2a2b91c4eed181178483d7a728caf8b6"  # « BDD Annuaire Busters »
-# « 📊 Jours par Buster » : une page par Buster, qui additionne ses demandes par rollup.
+# « 📊 Bilan destaff par Buster » : une page par Buster, qui additionne ses demandes par rollup.
 # Une vue de la base des demandes ne sait pas agréger en une ligne par Buster, d'où cette
 # base. Le job y crée la page du Buster au besoin et y relie chacune de ses demandes.
 SYNTHESE_DB_ID = "fa57ac515bd047368e5812114d033ca0"
