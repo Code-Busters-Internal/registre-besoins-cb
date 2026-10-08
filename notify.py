@@ -237,6 +237,19 @@ def texte_titre(prop):
     return "".join(part["plain_text"] for part in (prop or {}).get("title", [])).strip()
 
 
+def titre_de(props):
+    """Le titre de la page, quel que soit le nom de sa colonne titre.
+
+    Renommer la question titre d'un formulaire Notion renomme la colonne elle-même
+    (« Nom » est devenue « Titre du projet » le 2026-10-08) : on ne s'appuie donc pas
+    sur son nom.
+    """
+    for prop in props.values():
+        if prop.get("type") == "title":
+            return texte_titre(prop)
+    return ""
+
+
 def texte_riche(prop):
     return "".join(part["plain_text"] for part in (prop or {}).get("rich_text", [])).strip()
 
@@ -374,7 +387,7 @@ def appliquer_nogos(token, database_id):
     rejetes = 0
     for page in besoins:
         props = page["properties"]
-        nom = texte_titre(props.get("Nom")) or "(sans titre)"
+        nom = titre_de(props) or "(sans titre)"
         if not texte_riche(props.get(PROP_MOTIF_REJET)):
             print(f"  · No-go sans motif, laissé en Pré-validation : {nom}")
             continue
@@ -467,7 +480,7 @@ def suivre_owners(token, database_id, aujourdhui):
     compteurs = {"compte": 0, "cadrage": 0, "demande": 0}
     for page in besoins:
         props = page["properties"]
-        nom = texte_titre(props.get("Nom")) or "(sans titre)"
+        nom = titre_de(props) or "(sans titre)"
         etat = nom_select(props.get("État"))
         owner_id = props[PROP_OWNER]["relation"][0]["id"]
 
@@ -739,7 +752,7 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
     dus.sort(key=lambda d: -d[2])  # les plus anciens d'abord
     besoins = [
         (
-            texte_titre(props.get("Nom")) or "(sans titre)",
+            titre_de(props) or "(sans titre)",
             nom_select(props.get("Catégorie")),
             nom_createur(props.get("Créé par")),
             age,
@@ -806,7 +819,7 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     Retourne 'annonce', 'relance' ou None.
     """
     props = page["properties"]
-    nom = texte_titre(props.get("Nom")) or "(sans titre)"
+    nom = titre_de(props) or "(sans titre)"
     url = page["url"]
     phrase = texte_riche(props.get(PROP_PHRASE)) or texte_riche(
         props.get(PROP_PHRASE_AVANT_20261008)
