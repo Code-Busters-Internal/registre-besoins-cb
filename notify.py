@@ -134,6 +134,10 @@ SYNTHESE_FICHE = "Fiche Buster"
 # le lien `Suivi` est vide, le job pose `Suivi demandé le`, ce qui déclenche le mail
 # Notion demandant à l'owner de créer et déclarer sa page de suivi (relance à 7 jours).
 PROP_OWNER_COMPTE = "Owner (compte)"
+# Même principe pour les contributeurs (2026-10-08) : la vue « 🌟 Mon impact » filtre sur
+# « moi », ce qu'une relation vers l'annuaire ne permet pas — il faut des comptes Notion.
+PROP_CONTRIBUTEURS_LIES = "Contributeurs"
+PROP_CONTRIBUTEURS_COMPTES = "Contributeurs (comptes)"
 PROP_SUIVI = "Suivi"
 PROP_SUIVI_DEMANDE = "Suivi demandé le"
 ANNUAIRE_PERSONNE = "Person"
@@ -414,6 +418,36 @@ def compte_owner(token, owner_page_id, cache):
         personnes = (fiche["properties"].get(ANNUAIRE_PERSONNE) or {}).get("people") or []
         cache[owner_page_id] = personnes[0]["id"] if personnes else None
     return cache[owner_page_id]
+
+
+def recopier_comptes_contributeurs(token, database_id):
+    """Recopie dans `Contributeurs (comptes)` les comptes Notion des fiches `Contributeurs`.
+
+    Tient la colonne à jour dans les deux sens (ajout et retrait d'un contributeur).
+    Retourne le nombre de projets mis à jour.
+    """
+    cache, maj = {}, 0
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        if PROP_CONTRIBUTEURS_COMPTES not in props:
+            print(f"  ! colonne « {PROP_CONTRIBUTEURS_COMPTES} » absente : rien à recopier")
+            return 0
+        fiches = (props.get(PROP_CONTRIBUTEURS_LIES) or {}).get("relation") or []
+        comptes = []
+        for fiche in fiches:
+            compte = compte_owner(token, fiche["id"], cache)
+            if compte and compte not in comptes:
+                comptes.append(compte)
+        actuels = [p["id"] for p in (props.get(PROP_CONTRIBUTEURS_COMPTES) or {}).get("people") or []]
+        if sorted(actuels) != sorted(comptes):
+            ecrire_proprietes(
+                token,
+                page["id"],
+                {PROP_CONTRIBUTEURS_COMPTES: {"people": [{"id": c} for c in comptes]}},
+                f"« {PROP_CONTRIBUTEURS_COMPTES} »",
+            )
+            maj += 1
+    return maj
 
 
 def suivre_owners(token, database_id, aujourdhui):
@@ -844,7 +878,8 @@ def main():
     else:
         print("  ! NOTION_SUIVI_BESOINS_DB_ID absent : liens déclarés par les owners non recopiés.")
     o = suivre_owners(token, database_id, aujourdhui)
-    print(f"  {o['compte']} compte(s) d'owner renseigné(s), {o['cadrage']} passage(s) en Cadrage métier, {o['demande']} demande(s) de page de suivi\n")
+    print(f"  {o['compte']} compte(s) d'owner renseigné(s), {o['cadrage']} passage(s) en Cadrage métier, {o['demande']} demande(s) de page de suivi")
+    print(f"  {recopier_comptes_contributeurs(token, database_id)} projet(s) aux comptes de contributeurs mis à jour\n")
 
     pages = besoins_dans_etat(token, database_id, "Publication")
     print(f"{len(pages)} besoin(s) en État = Publication")
