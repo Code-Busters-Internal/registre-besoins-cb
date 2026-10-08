@@ -111,6 +111,11 @@ DESTAFF_SITUATION = "Situation"
 # Buster le mail « Tracker mon avancement » avec ses dates.
 SUIVI_INTERCONTRAT_JOURS = 3
 DESTAFF_PERIODE_SUIVI = "Période de suivi"
+# Le grade du Buster, et donc son quota annuel de destaff, vit dans sa fiche annuaire.
+# Notion ne sait pas relier une page à la fiche de son créateur : le job retrouve la
+# fiche dont `Person` est le créateur de la demande et la pose dans `Fiche Buster`.
+DESTAFF_FICHE = "Fiche Buster"
+ANNUAIRE_DB_ID = "2a2b91c4eed181178483d7a728caf8b6"  # « BDD Annuaire Busters »
 
 # Owner d'un besoin. `Owner` est une relation vers l'annuaire, qu'une automatisation Notion
 # ne sait pas utiliser comme destinataire : le job recopie le compte Notion de l'owner
@@ -442,6 +447,34 @@ def suivre_owners(token, database_id, aujourdhui):
         compteurs["demande"] += 1
         print(f"  → page de suivi demandée à l'owner : {nom}")
     return compteurs
+
+
+def relier_fiches_buster(token, database_id):
+    """Pose dans `Fiche Buster` la fiche annuaire du créateur de chaque demande qui n'en a pas."""
+    demandes = pages_de_base(
+        token, database_id, {"filter": {"property": DESTAFF_FICHE, "relation": {"is_empty": True}}}
+    )
+    cache = {}
+    reliees = 0
+    for page in demandes:
+        nom = titre_page(page["properties"])
+        createur = (page.get("created_by") or {}).get("id")
+        if not createur:
+            continue
+        if createur not in cache:
+            fiches = pages_de_base(
+                token, ANNUAIRE_DB_ID, {"filter": {"property": ANNUAIRE_PERSONNE, "people": {"contains": createur}}}
+            )
+            cache[createur] = fiches[0]["id"] if fiches else None
+        if not cache[createur]:
+            print(f"  ! aucune fiche annuaire pour le créateur de : {nom}")
+            continue
+        ecrire_proprietes(
+            token, page["id"], {DESTAFF_FICHE: {"relation": [{"id": cache[createur]}]}}, f"« {DESTAFF_FICHE} »"
+        )
+        reliees += 1
+        print(f"  → fiche annuaire reliée : {nom}")
+    return reliees
 
 
 def avancer_destaffs(token, database_id, aujourdhui):
@@ -789,6 +822,7 @@ def main():
         print("\nDemandes de destaff et d'intercontrat")
         c = avancer_destaffs(token, destaff_db, aujourdhui)
         print(f"  {c['refusé']} refusée(s), {c['en cours']} passée(s) en cours, {c['suivi']} rappel(s) de suivi, {c['terminé']} terminée(s), {c['relance']} relance(s) de bilan")
+        print(f"  {relier_fiches_buster(token, destaff_db)} fiche(s) annuaire reliée(s)")
     else:
         print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
 
