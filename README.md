@@ -4,7 +4,7 @@
 
 > **Docs** : la spécification fonctionnelle complète est dans [`docs/spec.md`](docs/spec.md). Les scripts Playwright pour éditer ce que l'API Notion ne couvre pas (formulaires, mails d'automatisation, partages) sont dans [`docs/notion-ui/`](docs/notion-ui/README.md).
 
-Poste sur le channel Discord `#besoins-internes` les besoins internes qui passent en
+Poste sur le channel Discord des Busters (`#besoins-internes` jusqu'au 2026-10-09) les besoins internes qui passent en
 **Publication**, puis les relance tous les 10 jours tant qu'ils n'ont pas d'**Owner**.
 Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
 **Pré-validation**.
@@ -179,9 +179,8 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `NOTION_TOKEN` | intégration interne Notion, voir ci-dessous |
 | `NOTION_DATABASE_ID` | id de « Base des projets » (ex-« Base des besoins internes ») dans son URL |
 | `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un projet » |
-| `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
+| `DISCORD_WEBHOOK_ANNONCES_URL` | channel des Busters (annonces et relances) : Modifier le salon → Intégrations → Webhooks. Depuis le 2026-10-09, il remplace l'ancien `DISCORD_WEBHOOK_URL`, qui ne sert plus que de repli s'il manque |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
-| `DISCORD_WEBHOOK_ANNONCES_URL` | idem, sur le channel des Busters (optionnel : les annonces de publication y sont postées en plus du channel dédié) |
 | `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
 | `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des projets » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
 
@@ -207,7 +206,7 @@ Discord ni écrire dans Notion. Décoche-la pour un vrai envoi.
 ```sh
 export NOTION_TOKEN=secret_…
 export NOTION_DATABASE_ID=…
-export DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/…
+export DISCORD_WEBHOOK_ANNONCES_URL=https://discord.com/api/webhooks/…
 DRY_RUN=1 python notify.py
 ```
 
