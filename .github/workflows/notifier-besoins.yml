@@ -43,4 +43,5 @@ jobs:
           NOTION_SUIVI_BESOINS_DB_ID: ${{ secrets.NOTION_SUIVI_BESOINS_DB_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_WEBHOOK_PREVALIDATION_URL: ${{ secrets.DISCORD_WEBHOOK_PREVALIDATION_URL }}
+          DISCORD_WEBHOOK_ANNONCES_URL: ${{ secrets.DISCORD_WEBHOOK_ANNONCES_URL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}

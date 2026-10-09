@@ -179,6 +179,7 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `NOTION_CANDIDATURES_DB_ID` | id de « Base de candidatures à un projet » |
 | `DISCORD_WEBHOOK_URL` | Modifier le salon → Intégrations → Webhooks |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
+| `DISCORD_WEBHOOK_ANNONCES_URL` | idem, sur le channel des Busters (optionnel : les annonces de publication y sont postées en plus du channel dédié) |
 | `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
 | `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des projets » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
 

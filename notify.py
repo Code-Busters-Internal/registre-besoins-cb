@@ -22,6 +22,10 @@ Variables d'environnement :
   DISCORD_WEBHOOK_PREVALIDATION_URL
                               webhook du channel des rappels de pré-validation ;
                               optionnel, son absence désactive seulement ces rappels
+  DISCORD_WEBHOOK_ANNONCES_URL
+                              webhook du channel des Busters : les annonces de
+                              publication y sont postées en plus du channel dédié ;
+                              optionnel
   NOTION_DESTAFF_DB_ID        id de « Demandes de destaff et d'intercontrat » ;
                               optionnel, son absence désactive seulement ce volet
   DRY_RUN                     à 1, affiche ce qui partirait sans rien poster ni écrire
@@ -809,7 +813,7 @@ def message_relance(nom, phrase, age, url, candidatures):
     return "\n".join(lignes)
 
 
-def traiter(page, token, webhook_url, aujourdhui, candidatures):
+def traiter(page, token, webhook_url, aujourdhui, candidatures, webhook_annonces=None):
     """Poste au plus un message pour cette page.
 
     `candidatures` est le nombre de candidatures hors brouillon, ou None si on n'a pas
@@ -838,12 +842,14 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
         print(f"  · {nom} : « {PROP_PUBLICATION} » initialisée au {aujourdhui}")
 
     if not coche(props.get(PROP_ANNONCE)):
-        post_discord(
-            webhook_url,
-            message_annonce(
-                nom, phrase, nom_select(props.get("Catégorie")), url, cherche_contributeurs
-            ),
+        message = message_annonce(
+            nom, phrase, nom_select(props.get("Catégorie")), url, cherche_contributeurs
         )
+        # Channel des Busters d'abord : s'il échoue, rien n'est coché ni posté ailleurs,
+        # et le prochain passage refait les deux.
+        if webhook_annonces:
+            post_discord(webhook_annonces, message)
+        post_discord(webhook_url, message)
         cocher(token, page["id"], PROP_ANNONCE)
         print(f"  → annonce postée : {nom}")
         return "annonce"
@@ -871,6 +877,7 @@ def main():
     webhook_url = env("DISCORD_WEBHOOK_URL")
     candidatures_db = os.environ.get("NOTION_CANDIDATURES_DB_ID")
     webhook_prevalidation = os.environ.get("DISCORD_WEBHOOK_PREVALIDATION_URL")
+    webhook_annonces = os.environ.get("DISCORD_WEBHOOK_ANNONCES_URL")
     aujourdhui = date.today()
 
     if DRY_RUN:
@@ -900,11 +907,14 @@ def main():
     annonces = relances = 0
     for page in pages:
         nb = None if index is None else index.get(sans_tirets(page["id"]), 0)
-        resultat = traiter(page, token, webhook_url, aujourdhui, nb)
+        resultat = traiter(page, token, webhook_url, aujourdhui, nb, webhook_annonces)
         if resultat == "annonce":
             annonces += 1
         elif resultat == "relance":
             relances += 1
+
+    if not webhook_annonces:
+        print("! DISCORD_WEBHOOK_ANNONCES_URL absent : annonces postées seulement sur le channel dédié.")
 
     if webhook_prevalidation:
         rappels = rappeler_prevalidations(token, database_id, webhook_prevalidation, aujourdhui)
