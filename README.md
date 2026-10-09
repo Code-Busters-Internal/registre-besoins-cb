@@ -2,6 +2,8 @@
 
 > **2026-10-08** : le registre s'appelle désormais **« 🤝 Contribuer à CB »** et un « besoin » devient un **« projet »** (bases, colonnes, formulaires, mails, messages Discord). Le code lit les colonnes renommées (`Le projet en une phrase`, relation `Projet`) avec repli sur l'ancien nom, et le titre des pages quel que soit le nom de la colonne titre (`Titre du projet`). Le reste de ce README garde le mot « besoin » là où il décrit l'historique.
 
+> **Docs** : la spécification fonctionnelle complète est dans [`docs/spec.md`](docs/spec.md). Les scripts Playwright pour éditer ce que l'API Notion ne couvre pas (formulaires, mails d'automatisation, partages) sont dans [`docs/notion-ui/`](docs/notion-ui/README.md).
+
 Poste sur le channel Discord `#besoins-internes` les besoins internes qui passent en
 **Publication**, puis les relance tous les 10 jours tant qu'ils n'ont pas d'**Owner**.
 Sur un second channel, il rappelle tous les 5 jours les besoins qui restent en
