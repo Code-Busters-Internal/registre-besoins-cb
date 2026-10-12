@@ -866,6 +866,189 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
     return "relance"
 
 
+# Récap hebdomadaire (2026-10-12) : au premier passage de chaque semaine, le job écrit une
+# page dans « 📋 Récaps hebdomadaires » ; une automatisation Notion, déclenchée par l'ajout
+# de la page, envoie son « Résumé » par mail à l'animateur (Alexandre) et à Valmon.
+# Comme pour les autres mails, le job écrit et Notion envoie : pas de SMTP ici.
+RECAP_DB_ID = "3f7b91c4eed181fda208e1f19651a7f2"
+RECAP_CLE = "Clé"
+RECAP_RESUME = "Résumé"
+RECAP_FENETRE_JOURS = 7
+QUOTA_ALERTE_POURCENT = 80
+# Une propriété rich_text accepte 2000 caractères par bloc de texte.
+NOTION_MAX_TEXTE = 2000
+
+
+def cle_semaine(jour):
+    annee, semaine, _ = jour.isocalendar()
+    return f"{annee}-W{semaine:02d}"
+
+
+def cree_le(page):
+    return date.fromisoformat(page["created_time"][:10])
+
+
+def valeur_nombre(prop):
+    """Le nombre porté par une propriété number, formula ou rollup, ou 0."""
+    prop = prop or {}
+    for cle in ("formula", "rollup"):
+        if prop.get("type") == cle:
+            prop = prop.get(cle) or {}
+    return prop.get("number") or 0
+
+
+def noms_personnes(prop):
+    return ", ".join(p.get("name", "") for p in (prop or {}).get("people", []) if p.get("name"))
+
+
+def jour_fr(jour):
+    return jour.strftime("%d/%m") if jour else "?"
+
+
+def sections_destaff(token, database_id, aujourdhui):
+    depuis = date.fromordinal(aujourdhui.toordinal() - RECAP_FENETRE_JOURS)
+    nouvelles, en_attente, en_cours, sans_tracking = [], [], [], []
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        nom = titre_page(props)
+        buster = nom_createur(props.get("Buster"))
+        situation = nom_select(props.get(DESTAFF_SITUATION)) or "?"
+        statut = nom_select(props.get(DESTAFF_STATUT))
+        debut = date_debut(props.get(DESTAFF_DEBUT))
+        fin = date_debut(props.get(DESTAFF_FIN))
+        jours = valeur_nombre(props.get("Nombre de jours"))
+        url = page["url"]
+        if cree_le(page) >= depuis:
+            nouvelles.append((f"{nom} — {buster} ({situation}, {jours:g} j, du {jour_fr(debut)} au {jour_fr(fin)})", url))
+        if situation == "Destaff" and statut == "Demande":
+            age = (aujourdhui - cree_le(page)).days
+            partner = noms_personnes(props.get("Partner responsable")) or "partner non renseigné"
+            en_attente.append((f"{nom} — {buster}, en attente de {partner} depuis {age} j", url))
+        if statut == "En cours":
+            jusque = f"jusqu'au {jour_fr(fin)}" if fin else "sans date de fin"
+            en_cours.append((f"{nom} — {buster} ({situation}, {jusque})", url))
+        sans_avancement = not a_une_relation(props.get(DESTAFF_JOURNAL))
+        intercontrat_lance = (
+            situation == "Intercontrat" and statut == "En cours" and debut is not None
+            and (aujourdhui - debut).days >= SUIVI_INTERCONTRAT_JOURS
+        )
+        if sans_avancement and (statut == "Terminé" or intercontrat_lance):
+            sans_tracking.append((f"{nom} — {buster} ({situation}, {statut.lower()})", url))
+    return [
+        ("🆕 Nouvelles demandes de destaff et d'intercontrat (7 derniers jours)", nouvelles),
+        ("⏳ Destaffs en attente de décision", en_attente),
+        ("▶️ Destaffs et intercontrats en cours", en_cours),
+        ("📝 Trackings manquants", sans_tracking),
+    ]
+
+
+def section_quotas(token):
+    alertes = []
+    for page in pages_de_base(token, SYNTHESE_DB_ID):
+        props = page["properties"]
+        quota = valeur_nombre(props.get("Quota destaff (j)"))
+        consomme = valeur_nombre(props.get("Jours destaff"))
+        if quota and consomme * 100 >= quota * QUOTA_ALERTE_POURCENT:
+            alertes.append((f"{titre_page(props)} : {consomme:g} j sur {quota:g} ({round(consomme * 100 / quota)} %)", page["url"]))
+        elif not quota and consomme:
+            alertes.append((f"{titre_page(props)} : {consomme:g} j sans quota (grade non renseigné ?)", page["url"]))
+    return ("📊 Quotas de destaff à 80 % ou plus", alertes)
+
+
+def sections_projets(token, database_id, candidatures_db, aujourdhui):
+    depuis = date.fromordinal(aujourdhui.toordinal() - RECAP_FENETRE_JOURS)
+    nouveaux, prevalidation, sans_owner = [], [], []
+    noms = {}
+    for page in pages_de_base(token, database_id):
+        props = page["properties"]
+        nom = titre_de(props) or "(sans titre)"
+        noms[sans_tirets(page["id"])] = nom
+        etat = nom_select(props.get("État"))
+        url = page["url"]
+        if cree_le(page) >= depuis:
+            nouveaux.append((f"{nom} — proposé par {nom_createur(props.get('Créé par'))} ({etat})", url))
+        if etat == "Pré-validation":
+            entree = date_debut(props.get(PROP_PREVALIDATION_DEPUIS)) or cree_le(page)
+            prevalidation.append((f"{nom} — depuis {(aujourdhui - entree).days} j", url))
+        if etat == "Publication" and not a_une_relation(props.get(PROP_OWNER)):
+            publie = date_debut(props.get(PROP_PUBLICATION))
+            age = f"publié depuis {(aujourdhui - publie).days} j" if publie else "date de publication inconnue"
+            sans_owner.append((f"{nom} — {age}", url))
+    candidatures = []
+    if candidatures_db:
+        for page in pages_de_base(token, candidatures_db):
+            props = page["properties"]
+            if cree_le(page) < depuis or nom_select(props.get("Statut")) in STATUTS_IGNORES:
+                continue
+            projets = ", ".join(noms.get(sans_tirets(l.get("id")), "?") for l in relation_projet(props))
+            candidat = nom_createur(props.get("Créé par")) or "?"
+            candidatures.append((f"{candidat} → {projets or '?'}", page["url"]))
+    return [
+        ("🆕 Nouveaux projets proposés (7 derniers jours)", nouveaux),
+        ("⏳ Projets en pré-validation", prevalidation),
+        ("📣 Projets publiés sans owner", sans_owner),
+        ("🙋 Nouvelles candidatures (7 derniers jours)", candidatures),
+    ]
+
+
+def resume_texte(sections):
+    lignes = []
+    for titre, items in sections:
+        lignes.append(f"{titre} : {len(items)}")
+        lignes.extend(f"   • {texte}" for texte, _ in items)
+        lignes.append("")
+    return "\n".join(lignes).strip()
+
+
+def blocs_texte(texte):
+    return [
+        {"type": "text", "text": {"content": texte[i:i + NOTION_MAX_TEXTE]}}
+        for i in range(0, len(texte), NOTION_MAX_TEXTE)
+    ][:100]
+
+
+def contenu_page(sections):
+    blocs = []
+    for titre, items in sections:
+        blocs.append({"object": "block", "type": "heading_3", "heading_3": {"rich_text": [{"type": "text", "text": {"content": f"{titre} : {len(items)}"}}]}})
+        for texte, url in items:
+            blocs.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": [{"type": "text", "text": {"content": texte[:NOTION_MAX_TEXTE], "link": {"url": url}}}]}})
+        if not items:
+            blocs.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "Rien à signaler."}, "annotations": {"color": "gray"}}]}})
+    return blocs[:100]
+
+
+def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdhui):
+    """Crée la page de récap de la semaine si elle n'existe pas encore. Retourne True si créée."""
+    cle = cle_semaine(aujourdhui)
+    existantes = pages_de_base(token, RECAP_DB_ID, {"filter": {"property": RECAP_CLE, "rich_text": {"equals": cle}}})
+    if existantes:
+        print(f"  récap {cle} déjà écrit")
+        return False
+    sections = []
+    if destaff_db:
+        sections += sections_destaff(token, destaff_db, aujourdhui)
+        sections.append(section_quotas(token))
+    sections += sections_projets(token, database_id, candidatures_db, aujourdhui)
+    resume = resume_texte(sections)
+    titre = f"Semaine du {aujourdhui.strftime('%d/%m/%Y')}"
+    if DRY_RUN:
+        print(f"    [dry-run] créerait le récap « {titre} » :\n{resume}\n")
+        return True
+    notion_request("POST", "/pages", token, {
+        "parent": {"database_id": RECAP_DB_ID},
+        "icon": {"type": "emoji", "emoji": "📋"},
+        "properties": {
+            "Semaine": {"title": [{"type": "text", "text": {"content": titre}}]},
+            RECAP_CLE: {"rich_text": [{"type": "text", "text": {"content": cle}}]},
+            RECAP_RESUME: {"rich_text": blocs_texte(resume)},
+        },
+        "children": contenu_page(sections),
+    })
+    print(f"  → récap {cle} écrit")
+    return True
+
+
 def main():
     token = env("NOTION_TOKEN")
     database_id = env("NOTION_DATABASE_ID")
@@ -933,6 +1116,9 @@ def main():
         print(f"  {relier_fiches_buster(token, destaff_db)} demande(s) reliée(s) à leur Buster")
     else:
         print("! NOTION_DESTAFF_DB_ID absent : demandes de destaff non traitées.")
+
+    print("\nRécap hebdomadaire")
+    ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdhui)
 
     print(f"\nTerminé : {annonces} annonce(s), {relances} relance(s), {rappels} rappel(s) de pré-validation.")
 

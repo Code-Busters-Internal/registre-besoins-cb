@@ -158,6 +158,28 @@ L'automatisation `Go` calcule l'État par une formule :
 Il faut donc renseigner l'Owner et `Besoin de contributeurs` **avant** de mettre `Go`.
 Testé le 2026-10-02 sur les quatre combinaisons, État mis à jour en ~10 s.
 
+## Récap hebdomadaire (`ecrire_recap_hebdo`)
+
+Au premier passage de chaque semaine (clé ISO `2026-W42`), le job crée une page dans
+« 📋 Récaps hebdomadaires » (`RECAP_DB_ID`, dans le registre). L'automatisation Notion
+« Récap hebdo → mail à l'animateur et Valmon », déclenchée par l'ajout de page, envoie la propriété
+`Résumé` par mail à Alexandre Lemonnier et Valmon, avec le lien vers la page, qui donne
+le détail et les liens vers chaque fiche.
+
+Le récap couvre :
+- les nouvelles demandes de destaff et d'intercontrat des 7 derniers jours ;
+- les destaffs en attente de décision ;
+- ce qui est en cours ;
+- les trackings manquants : demande terminée, ou intercontrat lancé depuis 3 jours, sans entrée d'avancement ;
+- les quotas de destaff à 80 % ou plus ;
+- les nouveaux projets ;
+- les projets en pré-validation ;
+- les projets publiés sans owner ;
+- les nouvelles candidatures.
+
+S'il y a déjà une page pour la clé de la semaine, le job n'en crée pas d'autre : il n'y a jamais deux mails la même semaine. Pour changer les
+destinataires, modifie l'automatisation dans Notion, pas le code.
+
 ## La procédure de candidature est dans le message
 
 Le lien posté est celui de **la page du besoin** — c'est l'URL que Notion expose, et
