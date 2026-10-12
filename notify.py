@@ -149,6 +149,7 @@ ETATS_SUIVI_ATTENDU = {"Cadrage métier", "Cadrage technique", "En cours d'impl�
 # Base « Pages de suivi des besoins », alimentée par le formulaire « Déclarer la page de
 # suivi » : un owner n'a qu'un accès en lecture à la base des besoins, il déclare donc
 # son lien ici et le job le recopie dans la colonne `Suivi` du besoin.
+SUIVI_DECLARATIONS_DB_ID = "8ecc3c43d7354082a87b485b1961c058"  # « Pages de suivi des projets »
 DECLARATION_LIEN = "Lien"
 DECLARATION_RECOPIE = "Recopié"
 
@@ -1157,7 +1158,9 @@ def main():
         print("! NOTION_CANDIDATURES_DB_ID absent : les relances ne citeront pas le nombre de candidatures.")
 
     # Avant les annonces : un besoin dont l'owner vient d'être choisi quitte Publication.
-    suivi_db = os.environ.get("NOTION_SUIVI_BESOINS_DB_ID")
+    # Comme l'annuaire et le bilan destaff, l'id a une valeur par défaut : le secret GitHub
+    # n'avait jamais été créé et la recopie des liens ne tournait pas en prod.
+    suivi_db = os.environ.get("NOTION_SUIVI_BESOINS_DB_ID") or SUIVI_DECLARATIONS_DB_ID
     print("Owners et pages de suivi")
     if suivi_db:
         print(f"  {recopier_declarations_suivi(token, suivi_db)} lien(s) de suivi recopié(s)")

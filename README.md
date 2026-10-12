@@ -213,7 +213,7 @@ Les secrets de dépôt (Settings → Secrets and variables → Actions) :
 | `DISCORD_WEBHOOK_ANNONCES_URL` | channel des Busters (annonces et relances) : Modifier le salon → Intégrations → Webhooks. Depuis le 2026-10-09, il remplace l'ancien `DISCORD_WEBHOOK_URL`, qui ne sert plus que de repli s'il manque |
 | `DISCORD_WEBHOOK_PREVALIDATION_URL` | idem, sur le channel des rappels de pré-validation |
 | `NOTION_DESTAFF_DB_ID` | id de « Demandes de destaff et d'intercontrat » (optionnel) |
-| `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des projets » (optionnel : sans lui, les liens déclarés ne sont pas recopiés) |
+| `NOTION_SUIVI_BESOINS_DB_ID` | id de « Pages de suivi des projets » (facultatif : par défaut, la valeur `SUIVI_DECLARATIONS_DB_ID` du code) |
 
 `DISCORD_WEBHOOK_PREVALIDATION_URL` est optionnel : s'il manque, seuls les rappels de
 pré-validation sont désactivés.
