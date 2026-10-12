@@ -982,9 +982,24 @@ def analyser_destaffs(token, database_id, aujourdhui):
             r["critique"].append((libelle, f"quota dépassé : {consomme:g} j sur {quota:g}", page["url"]))
         elif quota and consomme * 100 >= quota * QUOTA_ALERTE_POURCENT:
             r["surveiller"].append((libelle, f"{consomme:g} j sur {quota:g} ({round(consomme * 100 / quota)} %)", page["url"]))
+        elif not quota and consomme and "Bronze" in grade_synthese(props):
+            # Décision du 2026-10-12 : un Bronze n'a aucun jour de destaff.
+            r["critique"].append((libelle, f"Bronze : {consomme:g} j de destaff, hors quota (0 j)", page["url"]))
         elif not quota and consomme:
-            r["surveiller"].append((libelle, f"{consomme:g} j de destaff sans quota (grade non renseigné ?)", page["url"]))
+            r["surveiller"].append((libelle, f"{consomme:g} j de destaff, grade non renseigné", page["url"]))
     return r
+
+
+def grade_synthese(props):
+    """Le grade de la fiche annuaire, remonté par le rollup « Grade » (ex. « Silver 3 »)."""
+    noms = []
+    for item in ((props.get("Grade") or {}).get("rollup") or {}).get("array", []):
+        valeur = item.get(item.get("type")) or {}
+        if isinstance(valeur, dict) and valeur.get("name"):
+            noms.append(valeur["name"])
+        elif isinstance(valeur, list):
+            noms += [v.get("name", "") for v in valeur if isinstance(v, dict)]
+    return " ".join(noms)
 
 
 def analyser_projets(token, database_id, candidatures_db, aujourdhui):
