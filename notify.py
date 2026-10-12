@@ -867,12 +867,16 @@ def traiter(page, token, webhook_url, aujourdhui, candidatures):
 
 
 # Récap hebdomadaire (2026-10-12) : au premier passage de chaque semaine, le job écrit une
-# page dans « 📋 Récaps hebdomadaires » ; une automatisation Notion, déclenchée par l'ajout
-# de la page, envoie son « Résumé » par mail à l'animateur (Alexandre) et à Valmon.
+# page dans « 📋 Récaps hebdomadaires » puis remplit « Envoyé le » ; une automatisation
+# Notion, déclenchée par cette date, envoie son « Résumé » par mail à l'animateur
+# (Alexandre) et à Valmon. Le récap couvre les deux pages : Destaff et Contribuer à CB.
 # Comme pour les autres mails, le job écrit et Notion envoie : pas de SMTP ici.
 RECAP_DB_ID = "3f7b91c4eed181fda208e1f19651a7f2"
 RECAP_CLE = "Clé"
 RECAP_RESUME = "Résumé"
+# L'automatisation écoute cette date : son « Ajout de page » ne réagit pas aux pages
+# créées par l'API (constaté le 2026-10-12), une modification de propriété si.
+RECAP_ENVOYE_LE = "Envoyé le"
 RECAP_FENETRE_JOURS = 7
 QUOTA_ALERTE_POURCENT = 80
 # Une propriété rich_text accepte 2000 caractères par bloc de texte.
@@ -991,12 +995,16 @@ def sections_projets(token, database_id, candidatures_db, aujourdhui):
     ]
 
 
-def resume_texte(sections):
+def resume_texte(groupes):
+    """`groupes` : [(titre de page, [(titre de section, [(texte, url)])])]."""
     lignes = []
-    for titre, items in sections:
-        lignes.append(f"{titre} : {len(items)}")
-        lignes.extend(f"   • {texte}" for texte, _ in items)
+    for page_titre, sections in groupes:
+        lignes.append(f"━━ {page_titre} ━━")
         lignes.append("")
+        for titre, items in sections:
+            lignes.append(f"{titre} : {len(items)}")
+            lignes.extend(f"   • {texte}" for texte, _ in items)
+            lignes.append("")
     return "\n".join(lignes).strip()
 
 
@@ -1007,7 +1015,15 @@ def blocs_texte(texte):
     ][:100]
 
 
-def contenu_page(sections):
+def contenu_page(groupes):
+    blocs = []
+    for page_titre, sections in groupes:
+        blocs.append({"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"type": "text", "text": {"content": page_titre}}]}})
+        blocs.extend(blocs_sections(sections))
+    return blocs[:100]
+
+
+def blocs_sections(sections):
     blocs = []
     for titre, items in sections:
         blocs.append({"object": "block", "type": "heading_3", "heading_3": {"rich_text": [{"type": "text", "text": {"content": f"{titre} : {len(items)}"}}]}})
@@ -1015,7 +1031,7 @@ def contenu_page(sections):
             blocs.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": [{"type": "text", "text": {"content": texte[:NOTION_MAX_TEXTE], "link": {"url": url}}}]}})
         if not items:
             blocs.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "Rien à signaler."}, "annotations": {"color": "gray"}}]}})
-    return blocs[:100]
+    return blocs
 
 
 def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdhui):
@@ -1025,17 +1041,16 @@ def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdh
     if existantes:
         print(f"  récap {cle} déjà écrit")
         return False
-    sections = []
+    groupes = []
     if destaff_db:
-        sections += sections_destaff(token, destaff_db, aujourdhui)
-        sections.append(section_quotas(token))
-    sections += sections_projets(token, database_id, candidatures_db, aujourdhui)
-    resume = resume_texte(sections)
+        groupes.append(("🧭 DESTAFF ET INTERCONTRAT", sections_destaff(token, destaff_db, aujourdhui) + [section_quotas(token)]))
+    groupes.append(("🙋 CONTRIBUER À CB (projets internes)", sections_projets(token, database_id, candidatures_db, aujourdhui)))
+    resume = resume_texte(groupes)
     titre = f"Semaine du {aujourdhui.strftime('%d/%m/%Y')}"
     if DRY_RUN:
         print(f"    [dry-run] créerait le récap « {titre} » :\n{resume}\n")
         return True
-    notion_request("POST", "/pages", token, {
+    page = notion_request("POST", "/pages", token, {
         "parent": {"database_id": RECAP_DB_ID},
         "icon": {"type": "emoji", "emoji": "📋"},
         "properties": {
@@ -1043,8 +1058,9 @@ def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdh
             RECAP_CLE: {"rich_text": [{"type": "text", "text": {"content": cle}}]},
             RECAP_RESUME: {"rich_text": blocs_texte(resume)},
         },
-        "children": contenu_page(sections),
+        "children": contenu_page(groupes),
     })
+    ecrire_date(token, page["id"], RECAP_ENVOYE_LE, aujourdhui)
     print(f"  → récap {cle} écrit")
     return True
 

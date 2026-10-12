@@ -161,8 +161,9 @@ Testé le 2026-10-02 sur les quatre combinaisons, État mis à jour en ~10 s.
 ## Récap hebdomadaire (`ecrire_recap_hebdo`)
 
 Au premier passage de chaque semaine (clé ISO `2026-W42`), le job crée une page dans
-« 📋 Récaps hebdomadaires » (`RECAP_DB_ID`, dans le registre). L'automatisation Notion
-« Récap hebdo → mail à l'animateur et Valmon », déclenchée par l'ajout de page, envoie la propriété
+« 📋 Récaps hebdomadaires » (`RECAP_DB_ID`, dans le registre), puis remplit `Envoyé le`.
+L'automatisation Notion « Récap hebdo → mail à l'animateur et Valmon », déclenchée par cette
+date, envoie la propriété
 `Résumé` par mail à Alexandre Lemonnier et Valmon, avec le lien vers la page, qui donne
 le détail et les liens vers chaque fiche.
 
@@ -176,6 +177,9 @@ Le récap couvre :
 - les projets en pré-validation ;
 - les projets publiés sans owner ;
 - les nouvelles candidatures.
+
+Le déclencheur « Ajout de page » de Notion ne réagit pas aux pages créées par l'API (2026-10-12), d'où la date.
+Le récap est découpé en deux parties, une par page : Destaff et intercontrat, puis Contribuer à CB.
 
 S'il y a déjà une page pour la clé de la semaine, le job n'en crée pas d'autre : il n'y a jamais deux mails la même semaine. Pour changer les
 destinataires, modifie l'automatisation dans Notion, pas le code.
