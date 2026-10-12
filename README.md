@@ -164,20 +164,25 @@ Au premier passage de chaque semaine (clé ISO `2026-W42`), le job crée une pag
 « 📋 Récaps hebdomadaires » (`RECAP_DB_ID`, dans le registre), puis remplit `Envoyé le`.
 L'automatisation Notion « Récap hebdo → mail à l'animateur et Valmon », déclenchée par cette
 date, envoie la propriété
-`Résumé` par mail à Alexandre Lemonnier et Valmon, avec le lien vers la page, qui donne
+`Résumé` par mail à Valmon (Alexandre Lemonnier sera ajouté après la phase de test), avec le lien vers la page, qui donne
 le détail et les liens vers chaque fiche.
 
-Le récap couvre :
-- les nouvelles demandes de destaff et d'intercontrat des 7 derniers jours ;
-- les destaffs en attente de décision ;
-- ce qui est en cours ;
-- les trackings manquants : demande terminée, ou intercontrat lancé depuis 3 jours, sans entrée d'avancement ;
-- les quotas de destaff à 80 % ou plus ;
-- les nouveaux projets ;
-- les projets en pré-validation ;
-- les projets publiés sans owner ;
-- les nouvelles candidatures.
+Le récap est organisé par page (Destaff et intercontrat, puis Contribuer à CB), avec le lien de chaque page et de chaque fiche. Chaque partie a trois rubriques :
+- **🔴 Critique** :
+  - destaff sans décision depuis 5 j, ou qui commence dans 2 j ou moins ;
+  - destaff ou intercontrat sans aucun tracking 7 j après la fin ou le début ;
+  - quota de destaff dépassé ;
+  - projet en pré-validation depuis 14 j ;
+  - No-go sans motif ;
+  - projet publié sans owner depuis 20 j ;
+  - owner sans page de suivi 7 j après la demande.
+- **🟠 À surveiller** : les mêmes cas plus tôt, plus :
+  - quota à 80 % ;
+  - intercontrat de plus de 30 j ;
+  - candidature « Intéressé » sans réponse depuis 7 j.
+- **🆕 Nouveau cette semaine** : les demandes, les projets et les candidatures créés ces 7 derniers jours.
 
+Les seuils sont des constantes en tête de la section « récap » de `notify.py`.
 Le déclencheur « Ajout de page » de Notion ne réagit pas aux pages créées par l'API (2026-10-12), d'où la date.
 Le récap est découpé en deux parties, une par page : Destaff et intercontrat, puis Contribuer à CB.
 

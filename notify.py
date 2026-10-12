@@ -909,59 +909,85 @@ def jour_fr(jour):
     return jour.strftime("%d/%m") if jour else "?"
 
 
-def sections_destaff(token, database_id, aujourdhui):
+# Seuils du récap. « Critique » : il faut agir maintenant ; « À surveiller » : ça le
+# deviendra si personne ne bouge.
+PAGE_DESTAFF_URL = "https://app.notion.com/p/3f1b91c4eed18195bdc4d940c64a7b39"
+PAGE_CONTRIBUER_URL = "https://app.notion.com/p/3b3b91c4eed18151bde4fb6455fdcb24"
+DECISION_CRITIQUE_JOURS = 5  # destaff sans Go/No-go depuis
+DEBUT_PROCHE_JOURS = 2  # destaff sans décision qui commence dans
+TRACKING_CRITIQUE_JOURS = 7  # terminé ou intercontrat lancé sans aucun tracking depuis
+INTERCONTRAT_LONG_JOURS = 30
+PREVALIDATION_CRITIQUE_JOURS = 14
+SANS_OWNER_CRITIQUE_JOURS = 20
+CANDIDATURE_SANS_REPONSE_JOURS = 7
+
+
+def nouvelle_page_recap():
+    return {"critique": [], "surveiller": [], "nouveau": []}
+
+
+def analyser_destaffs(token, database_id, aujourdhui):
     depuis = date.fromordinal(aujourdhui.toordinal() - RECAP_FENETRE_JOURS)
-    nouvelles, en_attente, en_cours, sans_tracking = [], [], [], []
+    r = nouvelle_page_recap()
     for page in pages_de_base(token, database_id):
         props = page["properties"]
         nom = titre_page(props)
         buster = nom_createur(props.get("Buster"))
         situation = nom_select(props.get(DESTAFF_SITUATION)) or "?"
+        sigle = "IC" if situation == "Intercontrat" else "Destaff"
         statut = nom_select(props.get(DESTAFF_STATUT))
         debut = date_debut(props.get(DESTAFF_DEBUT))
         fin = date_debut(props.get(DESTAFF_FIN))
         jours = valeur_nombre(props.get("Nombre de jours"))
         url = page["url"]
+        libelle = f"[{sigle}] {nom} — {buster}"
+        age = (aujourdhui - cree_le(page)).days
+
         if cree_le(page) >= depuis:
-            nouvelles.append((f"{nom} — {buster} ({situation}, {jours:g} j, du {jour_fr(debut)} au {jour_fr(fin)})", url))
+            r["nouveau"].append((libelle, f"{jours:g} j, du {jour_fr(debut)} au {jour_fr(fin)}, statut {statut or '?'}", url))
+
         if situation == "Destaff" and statut == "Demande":
-            age = (aujourdhui - cree_le(page)).days
             partner = noms_personnes(props.get("Partner responsable")) or "partner non renseigné"
-            en_attente.append((f"{nom} — {buster}, en attente de {partner} depuis {age} j", url))
-        if statut == "En cours":
-            jusque = f"jusqu'au {jour_fr(fin)}" if fin else "sans date de fin"
-            en_cours.append((f"{nom} — {buster} ({situation}, {jusque})", url))
+            if debut is not None and (debut - aujourdhui).days <= DEBUT_PROCHE_JOURS:
+                quand = "a déjà commencé" if debut <= aujourdhui else f"commence le {jour_fr(debut)}"
+                r["critique"].append((libelle, f"pas de décision de {partner} et le destaff {quand}", url))
+            elif age >= DECISION_CRITIQUE_JOURS:
+                r["critique"].append((libelle, f"pas de décision de {partner} depuis {age} j", url))
+            else:
+                r["surveiller"].append((libelle, f"en attente de décision de {partner} depuis {age} j", url))
+
         sans_avancement = not a_une_relation(props.get(DESTAFF_JOURNAL))
-        intercontrat_lance = (
-            situation == "Intercontrat" and statut == "En cours" and debut is not None
-            and (aujourdhui - debut).days >= SUIVI_INTERCONTRAT_JOURS
-        )
-        if sans_avancement and (statut == "Terminé" or intercontrat_lance):
-            sans_tracking.append((f"{nom} — {buster} ({situation}, {statut.lower()})", url))
-    return [
-        ("🆕 Nouvelles demandes de destaff et d'intercontrat (7 derniers jours)", nouvelles),
-        ("⏳ Destaffs en attente de décision", en_attente),
-        ("▶️ Destaffs et intercontrats en cours", en_cours),
-        ("📝 Trackings manquants", sans_tracking),
-    ]
+        if sans_avancement and statut == "Terminé":
+            termine = date_debut(props.get(DESTAFF_TERMINE_LE)) or (fin and date.fromordinal(fin.toordinal() + 1))
+            ecart = (aujourdhui - termine).days if termine else None
+            cible = "critique" if ecart is None or ecart >= TRACKING_CRITIQUE_JOURS else "surveiller"
+            r[cible].append((libelle, f"terminé{f' depuis {ecart} j' if ecart is not None else ''}, aucun tracking", url))
+        if situation == "Intercontrat" and statut == "En cours" and debut is not None:
+            ecart = (aujourdhui - debut).days
+            if sans_avancement and ecart >= TRACKING_CRITIQUE_JOURS:
+                r["critique"].append((libelle, f"en intercontrat depuis {ecart} j, aucun tracking", url))
+            elif sans_avancement and ecart >= SUIVI_INTERCONTRAT_JOURS:
+                r["surveiller"].append((libelle, f"en intercontrat depuis {ecart} j, aucun tracking", url))
+            elif ecart >= INTERCONTRAT_LONG_JOURS:
+                r["surveiller"].append((libelle, f"en intercontrat depuis {ecart} j{'' if fin else ', sans date de fin'}", url))
 
-
-def section_quotas(token):
-    alertes = []
     for page in pages_de_base(token, SYNTHESE_DB_ID):
         props = page["properties"]
         quota = valeur_nombre(props.get("Quota destaff (j)"))
         consomme = valeur_nombre(props.get("Jours destaff"))
-        if quota and consomme * 100 >= quota * QUOTA_ALERTE_POURCENT:
-            alertes.append((f"{titre_page(props)} : {consomme:g} j sur {quota:g} ({round(consomme * 100 / quota)} %)", page["url"]))
+        libelle = f"[Quota] {titre_page(props)}"
+        if quota and consomme > quota:
+            r["critique"].append((libelle, f"quota dépassé : {consomme:g} j sur {quota:g}", page["url"]))
+        elif quota and consomme * 100 >= quota * QUOTA_ALERTE_POURCENT:
+            r["surveiller"].append((libelle, f"{consomme:g} j sur {quota:g} ({round(consomme * 100 / quota)} %)", page["url"]))
         elif not quota and consomme:
-            alertes.append((f"{titre_page(props)} : {consomme:g} j sans quota (grade non renseigné ?)", page["url"]))
-    return ("📊 Quotas de destaff à 80 % ou plus", alertes)
+            r["surveiller"].append((libelle, f"{consomme:g} j de destaff sans quota (grade non renseigné ?)", page["url"]))
+    return r
 
 
-def sections_projets(token, database_id, candidatures_db, aujourdhui):
+def analyser_projets(token, database_id, candidatures_db, aujourdhui):
     depuis = date.fromordinal(aujourdhui.toordinal() - RECAP_FENETRE_JOURS)
-    nouveaux, prevalidation, sans_owner = [], [], []
+    r = nouvelle_page_recap()
     noms = {}
     for page in pages_de_base(token, database_id):
         props = page["properties"]
@@ -969,41 +995,69 @@ def sections_projets(token, database_id, candidatures_db, aujourdhui):
         noms[sans_tirets(page["id"])] = nom
         etat = nom_select(props.get("État"))
         url = page["url"]
+        libelle = f"[Projet] {nom}"
+
         if cree_le(page) >= depuis:
-            nouveaux.append((f"{nom} — proposé par {nom_createur(props.get('Créé par'))} ({etat})", url))
+            r["nouveau"].append((libelle, f"proposé par {nom_createur(props.get('Créé par'))}, {etat}", url))
+
         if etat == "Pré-validation":
             entree = date_debut(props.get(PROP_PREVALIDATION_DEPUIS)) or cree_le(page)
-            prevalidation.append((f"{nom} — depuis {(aujourdhui - entree).days} j", url))
+            age = (aujourdhui - entree).days
+            if nom_select(props.get("Décision")) == "No-go" and not texte_riche(props.get(PROP_MOTIF_REJET)):
+                r["critique"].append((libelle, "No-go posé mais motif de rejet vide : le rejet n'est pas appliqué", url))
+            elif age >= PREVALIDATION_CRITIQUE_JOURS:
+                r["critique"].append((libelle, f"en pré-validation depuis {age} j, sans décision", url))
+            elif age >= RAPPEL_PREVALIDATION_JOURS:
+                r["surveiller"].append((libelle, f"en pré-validation depuis {age} j", url))
+
         if etat == "Publication" and not a_une_relation(props.get(PROP_OWNER)):
             publie = date_debut(props.get(PROP_PUBLICATION))
-            age = f"publié depuis {(aujourdhui - publie).days} j" if publie else "date de publication inconnue"
-            sans_owner.append((f"{nom} — {age}", url))
-    candidatures = []
+            age = (aujourdhui - publie).days if publie else None
+            if age is not None and age >= SANS_OWNER_CRITIQUE_JOURS:
+                r["critique"].append((libelle, f"publié depuis {age} j, toujours sans owner", url))
+            elif age is not None and age >= RELANCE_APRES_JOURS:
+                r["surveiller"].append((libelle, f"publié depuis {age} j, sans owner", url))
+
+        if etat in ETATS_SUIVI_ATTENDU and not (props.get(PROP_SUIVI) or {}).get("url"):
+            demande = date_debut(props.get(PROP_SUIVI_DEMANDE))
+            if demande and (aujourdhui - demande).days >= SUIVI_RELANCE_JOURS:
+                r["critique"].append((libelle, f"owner sans page de suivi, demandée il y a {(aujourdhui - demande).days} j", url))
+
     if candidatures_db:
         for page in pages_de_base(token, candidatures_db):
             props = page["properties"]
-            if cree_le(page) < depuis or nom_select(props.get("Statut")) in STATUTS_IGNORES:
-                continue
-            projets = ", ".join(noms.get(sans_tirets(l.get("id")), "?") for l in relation_projet(props))
+            statut = nom_select(props.get("Statut"))
+            projets = ", ".join(noms.get(sans_tirets(l.get("id")), "?") for l in relation_projet(props)) or "?"
             candidat = nom_createur(props.get("Créé par")) or "?"
-            candidatures.append((f"{candidat} → {projets or '?'}", page["url"]))
-    return [
-        ("🆕 Nouveaux projets proposés (7 derniers jours)", nouveaux),
-        ("⏳ Projets en pré-validation", prevalidation),
-        ("📣 Projets publiés sans owner", sans_owner),
-        ("🙋 Nouvelles candidatures (7 derniers jours)", candidatures),
-    ]
+            libelle = f"[Candidature] {candidat} → {projets}"
+            age = (aujourdhui - cree_le(page)).days
+            if statut == "Intéressé" and age >= CANDIDATURE_SANS_REPONSE_JOURS:
+                r["surveiller"].append((libelle, f"sans réponse depuis {age} j", page["url"]))
+            if cree_le(page) >= depuis and statut not in STATUTS_IGNORES:
+                r["nouveau"].append((libelle, f"statut {statut or '?'}", page["url"]))
+    return r
+
+
+RUBRIQUES = [
+    ("critique", "🔴 Critique : à traiter maintenant"),
+    ("surveiller", "🟠 À surveiller"),
+    ("nouveau", "🆕 Nouveau cette semaine"),
+]
 
 
 def resume_texte(groupes):
-    """`groupes` : [(titre de page, [(titre de section, [(texte, url)])])]."""
+    """`groupes` : [(titre de page, url de la page, {rubrique: [(libellé, raison, url)]})]."""
     lignes = []
-    for page_titre, sections in groupes:
-        lignes.append(f"━━ {page_titre} ━━")
-        lignes.append("")
-        for titre, items in sections:
-            lignes.append(f"{titre} : {len(items)}")
-            lignes.extend(f"   • {texte}" for texte, _ in items)
+    for page_titre, page_url, r in groupes:
+        lignes += [f"━━ {page_titre} ━━", f"Page : {page_url}", ""]
+        if not r["critique"] and not r["surveiller"]:
+            lignes += ["✅ Rien de critique ni à surveiller.", ""]
+        for cle, titre in RUBRIQUES:
+            if not r[cle]:
+                continue
+            lignes.append(f"{titre} ({len(r[cle])})")
+            for libelle, raison, url in r[cle]:
+                lignes += [f"   • {libelle} : {raison}", f"     {url}"]
             lignes.append("")
     return "\n".join(lignes).strip()
 
@@ -1015,23 +1069,33 @@ def blocs_texte(texte):
     ][:100]
 
 
+def _texte(contenu, url=None, gras=False, couleur=None):
+    t = {"type": "text", "text": {"content": contenu[:NOTION_MAX_TEXTE]}}
+    if url:
+        t["text"]["link"] = {"url": url}
+    annotations = {}
+    if gras:
+        annotations["bold"] = True
+    if couleur:
+        annotations["color"] = couleur
+    if annotations:
+        t["annotations"] = annotations
+    return t
+
+
 def contenu_page(groupes):
     blocs = []
-    for page_titre, sections in groupes:
-        blocs.append({"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"type": "text", "text": {"content": page_titre}}]}})
-        blocs.extend(blocs_sections(sections))
+    for page_titre, page_url, r in groupes:
+        blocs.append({"object": "block", "type": "heading_2", "heading_2": {"rich_text": [_texte(page_titre, page_url)]}})
+        if not r["critique"] and not r["surveiller"]:
+            blocs.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [_texte("✅ Rien de critique ni à surveiller.", couleur="gray")]}})
+        for cle, titre in RUBRIQUES:
+            if not r[cle]:
+                continue
+            blocs.append({"object": "block", "type": "heading_3", "heading_3": {"rich_text": [_texte(f"{titre} ({len(r[cle])})")]}})
+            for libelle, raison, url in r[cle]:
+                blocs.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": [_texte(libelle, url, gras=True), _texte(f" : {raison}")]}})
     return blocs[:100]
-
-
-def blocs_sections(sections):
-    blocs = []
-    for titre, items in sections:
-        blocs.append({"object": "block", "type": "heading_3", "heading_3": {"rich_text": [{"type": "text", "text": {"content": f"{titre} : {len(items)}"}}]}})
-        for texte, url in items:
-            blocs.append({"object": "block", "type": "bulleted_list_item", "bulleted_list_item": {"rich_text": [{"type": "text", "text": {"content": texte[:NOTION_MAX_TEXTE], "link": {"url": url}}}]}})
-        if not items:
-            blocs.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "Rien à signaler."}, "annotations": {"color": "gray"}}]}})
-    return blocs
 
 
 def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdhui):
@@ -1043,8 +1107,8 @@ def ecrire_recap_hebdo(token, database_id, candidatures_db, destaff_db, aujourdh
         return False
     groupes = []
     if destaff_db:
-        groupes.append(("🧭 DESTAFF ET INTERCONTRAT", sections_destaff(token, destaff_db, aujourdhui) + [section_quotas(token)]))
-    groupes.append(("🙋 CONTRIBUER À CB (projets internes)", sections_projets(token, database_id, candidatures_db, aujourdhui)))
+        groupes.append(("🧭 DESTAFF ET INTERCONTRAT", PAGE_DESTAFF_URL, analyser_destaffs(token, destaff_db, aujourdhui)))
+    groupes.append(("🙋 CONTRIBUER À CB (projets internes)", PAGE_CONTRIBUER_URL, analyser_projets(token, database_id, candidatures_db, aujourdhui)))
     resume = resume_texte(groupes)
     titre = f"Semaine du {aujourdhui.strftime('%d/%m/%Y')}"
     if DRY_RUN:
