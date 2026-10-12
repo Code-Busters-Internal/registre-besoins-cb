@@ -164,7 +164,7 @@ Au premier passage de chaque semaine (clé ISO `2026-W42`), le job crée une pag
 « 📋 Récaps hebdomadaires » (`RECAP_DB_ID`, dans le registre), puis remplit `Envoyé le`.
 L'automatisation Notion « Récap hebdo → mail à l'animateur et Valmon », déclenchée par cette
 date, envoie la propriété
-`Résumé` par mail à Valmon (Alexandre Lemonnier sera ajouté après la phase de test), avec le lien vers la page, qui donne
+`Résumé` par mail à Alexandre Lemonnier et Valmon, avec le lien vers la page, qui donne
 le détail et les liens vers chaque fiche.
 
 Le récap est organisé par page (Destaff et intercontrat, puis Contribuer à CB), avec le lien de chaque page et de chaque fiche. Chaque partie a trois rubriques :
