@@ -769,7 +769,7 @@ def rappeler_prevalidations(token, database_id, webhook_url, aujourdhui):
     # passage suivant reprend l'ensemble — un doublon plutôt qu'un oubli.
     for page, props, age in dus:
         ecrire_date(token, page["id"], PROP_DERNIER_RAPPEL_PREVALIDATION, aujourdhui)
-        print(f"  → rappel de pré-validation ({age} j) : {texte_titre(props.get('Nom'))}")
+        print(f"  → rappel de pré-validation ({age} j) : {titre_de(props)}")
     return len(dus)
 
 
