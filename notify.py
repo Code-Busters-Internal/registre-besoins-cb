@@ -879,8 +879,9 @@ RECAP_RESUME = "Résumé"
 RECAP_ENVOYE_LE = "Envoyé le"
 RECAP_FENETRE_JOURS = 7
 QUOTA_ALERTE_POURCENT = 80
-# Une propriété rich_text accepte 2000 caractères par bloc de texte.
-NOTION_MAX_TEXTE = 2000
+# Une propriété rich_text accepte 2000 caractères par bloc de texte, comptés en unités
+# UTF-16 : un emoji en vaut deux. On découpe à 1800 pour garder de la marge.
+NOTION_MAX_TEXTE = 1800
 
 
 def cle_semaine(jour):
